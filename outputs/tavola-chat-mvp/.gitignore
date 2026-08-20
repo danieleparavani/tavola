@@ -1,0 +1,8 @@
+data/openai-key.dpapi
+data/openai-key.protected
+data/dpapi-test*.txt
+data/protected-test.json
+# Dati reali dei tester del pilot: personali, non vanno versionati né condivisi in un repository.
+data/pilot.json
+node_modules/
+.env

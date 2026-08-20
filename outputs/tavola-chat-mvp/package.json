@@ -1,0 +1,1 @@
+{"name":"tavola-chat-mvp","version":"0.3.0","private":true,"type":"module","scripts":{"start":"node server.mjs","check":"node --check server.mjs && node --check core/tavola.mjs && node --check core/lab.mjs && node --check core/key-store.mjs && node --check public/chat.js && node --check public/dashboard.js","test":"node --test"}}

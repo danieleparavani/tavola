@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tavola Pilot Export",
+  "type": "object",
+  "required": ["schemaVersion", "profile", "events"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "exportedAt": {"type": "string", "format": "date-time"},
+    "profile": {"type": ["object", "null"], "properties": {"participantId": {"type": "string"}, "condition": {"enum": ["specialized", "generalist"]}}},
+    "context": {"type": "object"},
+    "session": {"type": ["object", "null"]},
+    "competencies": {"type": "object"},
+    "events": {"type": "array", "items": {"type": "object", "required": ["eventId", "type", "at", "version"]}}
+  }
+}
