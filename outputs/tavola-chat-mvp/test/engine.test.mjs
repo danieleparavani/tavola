@@ -87,7 +87,7 @@ test('apertura automatica: nessun comando tecnico compare nel testo iniziale', a
 
 // --- tre intenzioni operative -------------------------------------------------------
 
-test('le tre intenzioni operative portano tutte a collecting_context con un prompt coerente', async () => {
+test('le tre intenzioni operative portano tutte a collecting_people con i tasti rapidi per le persone', async () => {
   for (const [label, expectedIntent] of [
     ['💡 Cerco un’idea', 'idea'],
     ['🛒 Sto facendo la spesa', 'shopping'],
@@ -96,27 +96,117 @@ test('le tre intenzioni operative portano tutte a collecting_context con un prom
     const u = newUser('intent-' + expectedIntent, 'Tester');
     await handle(u, { text: 'ciao' }); // apre il capitolo
     const out = await handle(u, { text: label });
-    assert.equal(u.state, 'collecting_context');
+    assert.equal(u.state, 'collecting_people');
     assert.equal(u.context.intent, expectedIntent);
-    assert.match(out.text, /persone|tempo/i);
+    assert.match(out.text, /persone/i);
+    assert.deepEqual(out.keyboard, [['1', '2'], ['3', '4'], ['5+']]);
+  }
+});
+
+// --- tasti rapidi persone/tempo (D-027) -----------------------------------------------
+
+test('tasti rapidi: persone e tempo si raccolgono in due passaggi separati con tasti dedicati', async () => {
+  const u = newUser('quickkeys1', 'Tester');
+  await handle(u, { text: 'ciao' });
+  await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+  assert.equal(u.state, 'collecting_people');
+
+  const afterPeople = await handle(u, { text: '3' });
+  assert.equal(u.context.people, '3');
+  assert.equal(u.state, 'collecting_time');
+  assert.match(afterPeople.text, /tempo/i);
+  assert.deepEqual(afterPeople.keyboard, [['15 min', '30 min'], ['45 min', '1 ora'], ["più di un'ora"]]);
+
+  const afterTime = await handle(u, { text: '45 min' });
+  assert.equal(u.context.time, '45');
+  assert.equal(u.state, 'collecting_context');
+  assert.match(afterTime.text, /ingrediente|piatto/i);
+});
+
+test('tasti rapidi: "5+" e "più di un\'ora" vengono riconosciuti con un valore rappresentativo', async () => {
+  const u = newUser('quickkeys2', 'Tester');
+  await handle(u, { text: 'ciao' });
+  await handle(u, { text: '💡 Cerco un’idea' });
+  await handle(u, { text: '5+' });
+  assert.equal(u.context.people, '5');
+  const out = await handle(u, { text: "più di un'ora" });
+  assert.equal(u.context.time, '90');
+  assert.equal(u.state, 'collecting_context');
+  void out;
+});
+
+test('scorciatoia one-shot: un solo messaggio con persone, tempo e ingrediente salta direttamente alle tre direzioni', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('oneshot1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    assert.equal(u.state, 'collecting_people');
+    queueResponse(threeIdeas());
+    const out = await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    assert.equal(u.context.people, '2');
+    assert.equal(u.context.time, '45');
+    assert.equal(u.state, 'difficulty_choice');
+    assert.match(out.text, /Semplice curato/);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('scorciatoia one-shot: funziona anche a metà flusso, quando le persone sono già note e arrivano tempo+ingrediente insieme', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('oneshot2', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🛒 Sto facendo la spesa' });
+    await handle(u, { text: '4' }); // solo persone, tasto rapido
+    assert.equal(u.state, 'collecting_time');
+    queueResponse(threeIdeas());
+    const out = await handle(u, { text: '45 minuti, vongole' }); // tempo + ingrediente insieme
+    assert.equal(u.context.people, '4'); // conservato dal passaggio precedente
+    assert.equal(u.context.time, '45');
+    assert.equal(u.state, 'difficulty_choice');
+    assert.match(out.text, /Semplice curato/);
+  } finally {
+    restoreFetch();
   }
 });
 
 // --- dati mancanti -------------------------------------------------------------------
 
-test('dati mancanti: non inventa persone/tempo, chiede solo ciò che manca e lo registra come evento', async () => {
+test('dati mancanti: non inventa persone/tempo/ingrediente, e in ciascun passaggio chiede solo ciò che manca', async () => {
   const u = newUser('missing1', 'Tester');
   await handle(u, { text: 'ciao' });
   await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
-  const out = await handle(u, { text: 'ho della zucca in frigo' }); // niente persone/tempo
-  assert.equal(u.state, 'collecting_context'); // non deve avanzare
+  assert.equal(u.state, 'collecting_people');
+
+  // un messaggio senza un numero di persone riconoscibile non deve far avanzare né inventare nulla
+  let out = await handle(u, { text: 'boh' });
+  assert.equal(u.state, 'collecting_people');
   assert.equal(u.context.people, null);
+
+  out = await handle(u, { text: '3' });
+  assert.equal(u.context.people, '3');
+  assert.equal(u.state, 'collecting_time');
+
+  out = await handle(u, { text: 'boh' }); // niente tempo riconoscibile
+  assert.equal(u.state, 'collecting_time');
   assert.equal(u.context.time, null);
+
+  out = await handle(u, { text: '45 min' });
+  assert.equal(u.context.time, '45');
+  assert.equal(u.state, 'collecting_context');
+
+  out = await handle(u, { text: 'voglio fare' }); // nessun ingrediente reale (solo parole filler)
+  assert.equal(u.state, 'collecting_context'); // non deve avanzare
+  assert.equal(u.context.people, '3'); // conservato, non reinventato
+  assert.equal(u.context.time, '45');
   assert.match(out.text, /Mi manca/);
   const missingEvent = u.events.at(-1);
   assert.equal(missingEvent.type, 'context_missing');
-  assert.ok(missingEvent.payload.missing.includes('per quante persone'));
-  assert.ok(missingEvent.payload.missing.includes('quanto tempo hai'));
+  assert.ok(missingEvent.payload.missing.includes('ingrediente o piatto desiderato'));
+  assert.equal(missingEvent.payload.missing.includes('per quante persone'), false);
+  assert.equal(missingEvent.payload.missing.includes('quanto tempo hai'), false);
 });
 
 // --- tre livelli + selezione del livello ---------------------------------------------
@@ -312,9 +402,9 @@ test('dopo il D+1, cliccare direttamente un\'intenzione salta subito alla raccol
   u.state = 'waiting_dplus';
   u.pendingDplus = { dueAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), dishId: 'x', text: 't', curiosity: 'c', sessionId: 's1' };
   const out = await handle(u, { text: '🛒 Sto facendo la spesa' });
-  assert.equal(u.state, 'collecting_context');
+  assert.equal(u.state, 'collecting_people');
   assert.equal(u.context.intent, 'shopping');
-  assert.match(out.text, /persone|tempo/i);
+  assert.match(out.text, /persone/i);
 });
 
 // --- conservazione della memoria (a livello di oggetto utente) -------------------------

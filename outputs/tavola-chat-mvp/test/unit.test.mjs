@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePeople, parseTime, hasFoodRequest, isIntentChoice, parseIntent } from '../core/tavola.mjs';
+import { parsePeople, parseTime, parsePeopleLoose, parseTimeLoose, hasFoodRequest, isIntentChoice, parseIntent } from '../core/tavola.mjs';
 import { qualityIssues } from '../core/lab.mjs';
 
 // --- parsing di persone e tempo -------------------------------------------------
@@ -33,6 +33,37 @@ test('parseTime riconosce i minuti espliciti', () => {
 
 test('parseTime riconosce ore decimali', () => {
   assert.equal(parseTime('1,5 ore disponibili'), '90');
+});
+
+// --- parser "morbidi" per i tasti rapidi (D-027) ----------------------------------
+
+test('parsePeopleLoose riconosce le etichette dei tasti (1-4 e "5+")', () => {
+  assert.equal(parsePeopleLoose('1'), '1');
+  assert.equal(parsePeopleLoose('4'), '4');
+  assert.equal(parsePeopleLoose('5+'), '5');
+});
+
+test('parsePeopleLoose continua a riconoscere il testo libero già gestito da parsePeople', () => {
+  assert.equal(parsePeopleLoose('siamo in 6 persone'), '6');
+});
+
+test('parsePeopleLoose restituisce null su testo non riconducibile a un numero di persone', () => {
+  assert.equal(parsePeopleLoose('boh non saprei'), null);
+});
+
+test('parseTimeLoose riconosce le etichette dei tasti, comprese "45 min" e "1 ora"', () => {
+  assert.equal(parseTimeLoose('15 min'), '15');
+  assert.equal(parseTimeLoose('45 min'), '45');
+  assert.equal(parseTimeLoose('1 ora'), '60');
+});
+
+test('parseTimeLoose mappa "più di un\'ora" su un valore rappresentativo (90 minuti)', () => {
+  assert.equal(parseTimeLoose("più di un'ora"), '90');
+  assert.equal(parseTimeLoose('piu di un ora'), '90'); // robusto anche senza apostrofo
+});
+
+test('parseTimeLoose continua a riconoscere il testo libero già gestito da parseTime', () => {
+  assert.equal(parseTimeLoose('ho circa 20 minuti'), '20');
 });
 
 // --- tre intenzioni operative -----------------------------------------------------
@@ -124,11 +155,32 @@ test('qualityIssues rifiuta fonti da aggregatori/social non ammessi', () => {
   assert.ok(issues.some(i => i.includes('non ammessa')));
 });
 
-test('qualityIssues rifiuta la falsa precisione "la tostatura sigilla l’amido"', () => {
-  const dish = baseDish();
+test('qualityIssues rifiuta la falsa precisione "la tostatura sigilla l’amido" su qualunque piatto', () => {
+  const dish = baseDish(); // baseDish() è pesce spada: nessun risotto coinvolto
   dish.steps[0].why = 'la tostatura sigilla l’amido e protegge il chicco';
   const issues = qualityIssues(dish, { people: '2', time: '40', raw: 'pesce spada' });
-  assert.ok(issues.some(i => i.includes('risotto')));
+  assert.ok(issues.some(i => i.includes('pseudotecnica')));
+});
+
+// Regressione del bug osservato il 21 agosto 2026 su una proposta di seppia (cfr. EVIDENCE.md):
+// il controllo sul gesto scorretto del risotto non deve MAI comparire su un piatto che non è
+// un risotto, anche se il testo contiene "frusta" e altrove, senza alcun nesso, la sequenza
+// "ris" (che compare in moltissime parole italiane comuni).
+test('qualityIssues: il controllo sul gesto scorretto del risotto non scatta su piatti che non sono risotti', () => {
+  const dish = baseDish({ name: 'Seppia scottata, crema di sedano rapa e riduzione d’inchiostro' });
+  dish.steps[0].action = 'Frusta la crema di sedano rapa finché liscia, poi lasciala riposare.';
+  dish.steps[0].why = 'la frusta incorpora aria e rende la crema più leggera, pronta a risalire in temperatura senza separarsi.';
+  const issues = qualityIssues(dish, { people: '2', time: '40', raw: 'seppia' });
+  assert.ok(!issues.some(i => i.includes('risotto')), `non atteso un riferimento al risotto, trovato: ${issues.join(' | ')}`);
+});
+
+test('qualityIssues: il controllo sul gesto scorretto del risotto scatta correttamente quando il piatto è davvero un risotto', () => {
+  const dish = baseDish({ name: 'Risotto alla parmigiana con riduzione di vino bianco' });
+  dish.principle = { term: 'Mantecatura' };
+  dish.steps[0].action = 'Frusta energicamente il risotto fuori dal fuoco per mantecarlo.';
+  dish.steps[0].why = 'la frusta incorpora aria nel risotto.';
+  const issues = qualityIssues(dish, { people: '2', time: '40', raw: 'risotto' });
+  assert.ok(issues.some(i => i.includes('risotto')), `atteso un riferimento al risotto, trovato: ${issues.join(' | ')}`);
 });
 
 test('qualityIssues verifica il reinserimento delle vongole quando pertinente', () => {

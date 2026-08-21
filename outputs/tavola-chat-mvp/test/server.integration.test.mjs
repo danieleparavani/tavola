@@ -75,7 +75,7 @@ test('conservazione della memoria: lo stato di un utente sopravvive a un riavvio
       body: JSON.stringify({ userId: 'integ-1', text: '🍳 Ho gli ingredienti, cuciniamo' }),
     });
     const d2 = await r2.json();
-    assert.equal(d2.user.state, 'collecting_context');
+    assert.equal(d2.user.state, 'collecting_people');
     assert.equal(d2.user.context.intent, 'cook');
 
     assert.ok(fs.existsSync(path.join(dir, 'data', 'pilot.json')), 'atteso data/pilot.json creato dal server');
@@ -87,7 +87,7 @@ test('conservazione della memoria: lo stato di un utente sopravvive a un riavvio
     const r3 = await fetch(`${BASE}/api/user/integ-1`);
     assert.equal(r3.status, 200);
     const d3 = await r3.json();
-    assert.equal(d3.state, 'collecting_context');
+    assert.equal(d3.state, 'collecting_people');
     assert.equal(d3.context.intent, 'cook');
     assert.ok(d3.events.length >= 2);
   } finally {

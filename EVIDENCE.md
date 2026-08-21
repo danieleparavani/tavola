@@ -190,3 +190,77 @@ Partecipante e condizione: revisione statica e test automatici sul codice di `ou
 ### Limite dichiarato di questa verifica
 
 Non è stata eseguita una prova end-to-end con una chiamata reale al modello (`gpt-5-mini` via OpenAI) da questo ambiente: la chiave cifrata già salvata sul computer dell’utente è vincolata a quella macchina (derivazione della chiave di cifratura da utente e host locali, D-018) e non è decifrabile da questo ambiente cloud, e non è stata richiesta né incollata una chiave in chiaro qui, per coerenza con la regola “non incollarla nella chat”. La prova con ingrediente non editoriale (Fase 0, checklist) resta da eseguire dal progettista con la propria chiave collegata tramite `/setup.html`, seguendo i passi indicati nel rapporto finale.
+
+## Deployment reale — VM Google Cloud e bot Telegram (21 agosto 2026)
+
+Partecipante e condizione: progettista, prima conversazione reale su Telegram (non simulata), N=1, non in cieco.
+
+### Evidenze osservate
+
+- Server pubblicato su una VM e2-micro gratuita di Google Cloud (`tavola-prod`, us-central1-c), raggiungibile via tunnel HTTPS gratuito ngrok (dominio dev `density-divinely-flip.ngrok-free.dev`), reso persistente con systemd (`tavola.service`, `tavola-tunnel.service`).
+- Chiave OpenAI collegata sulla VM tramite `/setup.html`; `/api/status` conferma `labConnected:true`, modello `gpt-5-mini`.
+- Bot Telegram reale creato (`@tavola_cucina_bot`), webhook registrato e confermato via `getWebhookInfo`.
+- Prima conversazione reale: apertura senza `/start`, raccolta contesto (3 persone, 1 ora, ingrediente “seppia” — non editoriale) completata in due scambi, generazione delle tre direzioni gastronomiche (D-019) riuscita al primo tentativo.
+
+### Failure osservato — pulsanti Telegram consegnati in modo silenziosamente fallito
+
+Il messaggio con le tre proposte (testo + tre pulsanti) non è mai arrivato all’utente su Telegram, senza alcun errore visibile nei log del server.
+
+Causa isolata con test diretti: `server.mjs` costruiva `callback_data` usando lo stesso testo esteso mostrato sul pulsante (nome e descrizione del piatto, 68–96 byte). Telegram impone un limite di 64 byte su questo campo e rifiutava l’intera chiamata `sendMessage` con `400 Bad Request: BUTTON_DATA_INVALID`; il codice non controllava la risposta HTTP della chiamata, quindi il fallimento restava completamente invisibile sia all’utente sia nei log.
+
+### Decisione
+
+Corretto `server.mjs`: `callback_data` viene troncato a 64 byte su un confine di carattere Unicode valido, mantenendo intatto il testo visibile del pulsante; aggiunto un log esplicito quando `sendMessage` restituisce un errore, per evitare che un fallimento futuro resti di nuovo silenzioso. Fix verificato con invii diretti sulla VM (stesso messaggio, prima rifiutato con `BUTTON_DATA_INVALID`, poi consegnato con successo). Applicato e committato sulla VM; **non ancora sincronizzato su GitHub** perché la VM non ha credenziali git per il push (nessuna credenziale è stata inserita da Claude, per policy) — da completare dal progettista.
+
+### Verifica successiva — gate editoriale su una proposta reale (seppia, livello Gourmet)
+
+Selezionato il livello “Gourmet”: il laboratorio ha generato una bozza (“Seppia scottata, crema di sedano rapa e riduzione d’inchiostro”), respinta dal gate editoriale (D-015) con motivi concreti e strutturati: persone/tempo non confermati nel testo generato, impiattamento finale mancante (viola D-020), e un riferimento incongruente a un “risotto” non pertinente alla proposta. Il sistema si è astenuto correttamente, spiegando i motivi, invece di mostrare una ricetta scadente — comportamento coerente con D-015.
+
+La latenza della generazione completa (dopo la scelta del livello) ha superato il timeout del webhook di Telegram (`getWebhookInfo` ha registrato `last_error_message: "Read timeout expired"`), ma il processo server ha comunque completato l’elaborazione e consegnato il messaggio di astensione in background, con qualche decina di secondi di ritardo rispetto al tocco del pulsante.
+
+### Interpretazioni
+
+- Il bug dei pulsanti conferma, con un caso reale, l’importanza già segnalata nell’audit del 19 agosto di non fidarsi di un “200 OK” lato client come prova di consegna: senza controllo esplicito della risposta di Telegram, un fallimento totale del messaggio principale del prodotto (le tre proposte) sarebbe rimasto invisibile per l’intero pilot.
+- Il riferimento a “risotto” nel motivo di rifiuto è sospetto per una ricetta di seppia: potrebbe indicare una frase o un controllo di validazione residuo/hardcoded in `core/lab.mjs`, non un giudizio realmente specifico su questa proposta. Da verificare prima di fidarsi ciecamente delle motivazioni testuali del gate.
+- La latenza della generazione completa (livello scelto → proposta) è un rischio di percezione (“non funziona”) distinto dal corretto funzionamento tecnico: il sistema ha lavorato correttamente, ma senza un segnale intermedio l’utente non può distinguere un ritardo da un guasto.
+
+### Ipotesi non verificate
+
+- Se la latenza osservata sia un caso isolato (rete della VM, carico del modello) o un pattern ricorrente da correggere con un messaggio “sto pensando…” intermedio.
+- Se il livello “Gourmet” fallisca il gate più spesso di “Semplice curato” o “Tecnico” per requisiti oggettivamente più complessi da soddisfare (impiattamento, coerenza) — non ancora testato sugli altri due livelli.
+
+## Sessione di sviluppo su Claude/Cowork — 21 agosto 2026 (D-027 in codice, bug "risotto")
+
+Partecipante e condizione: sessione di sviluppo (D-025), non una sessione di cucina reale. Clone del repository GitHub tramite token fornito dal progettista, lettura e modifica diretta del codice, verifica con la suite di test automatici.
+
+### Evidenza rilevante sullo stato del repository
+
+Al momento del clone, `git log` sul repository mostrava un solo commit (import iniziale del 20 agosto). Il codice dei tasti rapidi persone/tempo (D-027) descritto in `DECISIONS.md` e `NEXT.md` come "già implementato e testato in locale, 46 test passano" **non era presente** in `core/tavola.mjs`: il motore poneva ancora la domanda combinata in testo libero ("Per quante persone, quanto tempo avrai e quali ingredienti..."). Anche `DECISIONS.md`, `EVIDENCE.md` e `NEXT.md` nel repository risultavano fermi allo stato del 20 agosto, senza le voci più recenti (D-027, D-028, la sezione "Deployment reale" del 21 agosto) presenti invece nei documenti canonici del progetto Claude. L'implementazione descritta come completata in una sessione precedente risulta quindi essersi persa fra quella sessione e il repository versionato — coerente con quanto già segnalato in `NEXT.md` (deploy sulla VM interrotto a metà), ma con un dettaglio più preciso: non è solo il deploy sulla VM a essere incompleto, il codice e i documenti aggiornati non erano mai arrivati su GitHub.
+
+### Decisione
+
+Portati i documenti canonici nel repository allo stato corrente (allineati alle copie del progetto Claude) prima di aggiungere le voci di questa sessione, per eliminare la divergenza. Implementato D-027 da zero in questa sessione, seguendo esattamente la specifica già approvata in `DECISIONS.md` (nessuna modifica alla decisione stessa): nuovi stati `collecting_people`/`collecting_time` in `core/tavola.mjs`, tasti rapidi (persone: 1/2/3/4/5+; tempo: 15 min/30 min/45 min/1 ora/più di un'ora), parser morbidi `parsePeopleLoose`/`parseTimeLoose` che riconoscono le etichette dei tasti oltre al testo libero già gestito dai parser rigorosi, e scorciatoia one-shot (`tryOneShot`) che salta direttamente alle tre direzioni gastronomiche quando un solo messaggio contiene già persone, tempo e ingrediente — verificata sia al primo messaggio dopo la scelta dell'intenzione sia a metà flusso (persone già note, tempo e ingrediente insieme). "5+" è mappato su 5 persone; "più di un'ora" su 90 minuti come valore rappresentativo, coerente con l'uso di `context.time` come minuti interi nel laboratorio generativo.
+
+Aggiornati anche i test preesistenti che assumevano il vecchio stato unico `collecting_context` subito dopo la scelta dell'intenzione (in `test/engine.test.mjs` e `test/server.integration.test.mjs`), aggiunti nuovi test per i tasti, per i valori "5+"/"più di un'ora" e per entrambe le varianti della scorciatoia one-shot.
+
+### Failure osservato e corretto — controllo "risotto" nel gate editoriale mai vincolato al risotto
+
+Indagato il riferimento sospetto a "risotto" comparso nel motivo di rifiuto del gate su una proposta di seppia (21 agosto, vedi sopra). Causa trovata in `core/lab.mjs`, `qualityIssues()`: il controllo `/sigill.*amid|frusta.*ris/i.test(all)` non era mai vincolato al tipo di piatto, a differenza degli altri controlli specifici (es. quelli sulle vongole, correttamente condizionati da `/vongol/i.test(...)`). In particolare `frusta.*ris` intercettava qualunque piatto contenente la parola "frusta" seguita, ovunque più avanti nel testo concatenato di tutti i passaggi, dalla sola sequenza di tre lettere "ris" — presente in moltissime parole italiane comuni (risultato, riscaldare, riserva, risalire...) e quindi non specifica del risotto.
+
+Un test preesistente (`test/unit.test.mjs`) certificava di fatto il comportamento scorretto: verificava che la frase pseudotecnica "la tostatura sigilla l'amido", applicata a un piatto di *pesce spada*, producesse un messaggio contenente la parola "risotto" — e lo considerava corretto.
+
+### Decisione
+
+Separati i due controlli in `qualityIssues()`:
+- la falsa precisione "la tostatura sigilla l'amido" resta un controllo generico su qualunque piatto (coerente con le istruzioni del laboratorio, che la vietano in generale), ma il messaggio non nomina più il risotto quando il piatto non lo è;
+- il controllo sul gesto scorretto ("si frusta invece di mantecare") ora si applica solo quando il piatto è davvero un risotto (titolo, principio tecnico o richiesta originale contengono "risott").
+
+Corretto anche il test preesistente che certificava il comportamento sbagliato, e aggiunti due test di regressione: uno che riproduce lo scenario reale (piatto di seppia con "frusta" nel testo, nessun riferimento al risotto atteso nell'esito) e uno che conferma che il controllo scatta ancora correttamente su un vero risotto.
+
+### Verifica successiva
+
+Suite di test completa eseguita dopo entrambe le correzioni: 52 test, tutti superati (`npm test`, `node:test`), incluse le nuove verifiche su tasti rapidi, scorciatoia one-shot e gate del risotto.
+
+### Limite dichiarato di questa verifica
+
+Come nell'audit del 19 agosto, non è stata eseguita alcuna chiamata reale al modello da questo ambiente (nessuna chiave OpenAI disponibile qui, per policy nessuna è stata richiesta né incollata). Le correzioni sono state verificate con la suite automatica e con fixture di test, non con una nuova conversazione reale su Telegram: la verifica su Telegram reale del flusso a tasti (D-027) resta da fare dopo il deploy sulla VM (cfr. `NEXT.md`). Il codice e i documenti canonici sono stati committati e pushati su GitHub al termine di questa sessione; il deploy sulla VM di produzione resta un passaggio separato, non eseguito da qui (nessun accesso diretto alla VM da questo ambiente).

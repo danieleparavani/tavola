@@ -153,3 +153,27 @@ Le decisioni sono ordinate cronologicamente. Una decisione può essere modificat
 **Decisione:** da questa data lo sviluppo operativo di Tavola avviene nella sessione Claude/Cowork collegata alla cartella del progetto, non più nell’attività Codex — sviluppo MVP e pilot citata in D-013. Quell’attività diventa archivio storico, al pari delle vecchie conversazioni che D-013 aveva già reso non operative.  
 **Ruolo di ChatGPT nel progetto:** non più luogo di sviluppo. Resta previsto come modello di controllo per il confronto A/B già definito in Fase 4 di NEXT.md (Tavola contro LLM generalista ben promptato), con prompt e versione del modello congelati, senza depotenziamento artificiale.  
 **Motivazione:** evitare la frammentazione fra più ambienti di lavoro che D-013 voleva già impedire — la “casa operativa unica” resta un principio valido, cambia solo lo strumento che la ospita.
+
+## D-026 — Repository git su GitHub come remoto canonico del codice
+
+**Stato:** adottata il 20 agosto 2026  
+**Decisione:** il codice del progetto (documenti canonici, `outputs/tavola-chat-mvp`, `outputs/mensa-mvp`) è ora versionato in un repository git con remoto su `github.com/danieleparavani/tavola` (privato). Non è più vincolato a un singolo PC: da qualunque macchina è sufficiente `git clone` per riprendere a lavorare.  
+**Esclusi di proposito dal repository:** `data/pilot.json` (dati reali dei tester, personali) e i file della chiave OpenAI cifrata — restano solo locali, mai versionati.  
+**Motivazione:** l’esigenza esplicita di non restare legati a un solo computer (20 agosto 2026). Non risolve da sola la portabilità della chiave OpenAI, che resta legata alla macchina che l’ha cifrata (D-018) finché non si decide di pubblicare il server in cloud (opzione preferita, ancora da eseguire — cfr. NEXT.md, Fase 1).
+
+## D-027 — Tasti rapidi per persone e tempo nella raccolta contesto
+
+**Stato:** adottata il 21 agosto 2026  
+**Decisione:** le prime due domande della raccolta contesto (numero di persone, tempo disponibile) si pongono ora con tasti rapidi dedicati, invece di un'unica riga di testo libero con persone, tempo e ingrediente insieme. L'ingrediente o piatto resta l'ultima domanda della sequenza e resta testo libero, coerentemente con D-014 (nessun catalogo chiuso: l'ampiezza degli ingredienti non va mai ridotta a un menu di scelte).  
+**Vincolo:** resta sempre disponibile una scorciatoia "one-shot": se un solo messaggio — anche vocale, dettato tutto insieme in auto o al supermercato — contiene già persone, tempo e ingrediente, il flusso salta direttamente alle tre direzioni gastronomiche (D-019), senza obbligare comunque a passare dai singoli tasti. Questo preserva l'input vocale naturale già previsto da D-011.  
+**Motivazione:** richiesta esplicita del progettista (21 agosto 2026) — scrivere in una riga persone, tempo e ingrediente è più lento e meno naturale su mobile rispetto a un tocco, soprattutto per i primi due dati che hanno risposte da un piccolo insieme chiuso di opzioni (a differenza dell'ingrediente, che resta per natura aperto).  
+**Implementazione:** `core/tavola.mjs` — nuovi stati `collecting_people`/`collecting_time` inseriti fra la scelta dell'intenzione e la domanda finale sull'ingrediente (quest'ultima mantiene il nome di stato `collecting_context` per minimizzare l'impatto sugli altri punti del codice che vi fanno riferimento); nuovi tasti (persone: 1/2/3/4/5+; tempo: 15 min/30 min/45 min/1 ora/più di un'ora); parser "morbidi" (`parsePeopleLoose`, `parseTimeLoose`) che riconoscono i tasti oltre alle frasi libere già gestite dai parser rigorosi esistenti. Test automatici aggiornati e ampliati in `test/engine.test.mjs` (tutti passano). Sincronizzazione sulla VM di produzione avviata il 21 agosto ma interrotta a metà da una disconnessione del browser usato per il deploy — da completare (cfr. NEXT.md).
+
+## D-028 — Mappa delle tecniche: enum con via di fuga, cultura gastronomica esclusa per ora
+
+**Stato:** adottata il 21 agosto 2026  
+**Decisione:** chiude le due domande aperte lasciate in `data/technique-map.draft.md`.  
+1. Lo schema del laboratorio userà un `techniqueMapId` come enum chiuso sulle tecniche nominate nella mappa, più un valore di fuga `altro` accompagnato da una nota libera obbligatoria. Il modello dichiara quasi sempre una voce reale della mappa; `altro` è per i casi in cui nessuna voce è davvero pertinente. Un `altro` ricorrente sullo stesso tipo di tecnica è un'evidenza che la mappa va ampliata, non un problema del laboratorio aperto (D-014).  
+2. La cultura gastronomica (scuole, tradizioni, storia di una tecnica) resta fuori dalla mappa delle tecniche in questo primo giro: non diventa una dodicesima area trasversale ora.  
+**Motivazione:** la mappa serve a dare alla dashboard un territorio fisso di tecniche osservabili; la cultura è per natura meno discreta e rischierebbe di essere popolata prematuramente senza le evidenze del pilot — lo stesso principio già applicato al modello delle competenze e al libro (NEXT.md, "Non fare ora"). Resta comunque presente in conversazione tramite riferimenti verificati (D-009) e via progressive disclosure (D-018).  
+**Conseguenza:** l'aggiunta del campo `techniqueMapId` allo schema generativo e il relativo collegamento alla dashboard restano da implementare (non ancora fatto — cfr. NEXT.md, backlog). Si riconsidera l'inclusione della cultura gastronomica come area strutturata dopo le prime evidenze del pilot.

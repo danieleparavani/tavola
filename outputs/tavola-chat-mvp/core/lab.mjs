@@ -54,7 +54,18 @@ export function qualityIssues(d,context){
   const technical=evidence.filter(e=>!/(sicurezza|scart|guscio rotto|lavaggio|conserv)/i.test(e.claim||''));
   if(!technical.length)issues.push('nessuna fonte sostiene la tecnica centrale');
   if(/conserv|frigorif|entro 24 ore/i.test(d.dplus||''))issues.push('D+1 pesante o dedicato alla conservazione');
-  if(/sigill.*amid|frusta.*ris/i.test(all))issues.push('spiegazione o gesto scorretto sul risotto');
+  // "la tostatura sigilla l'amido" è una falsa precisione vietata dalle istruzioni per
+  // qualunque piatto (non solo il risotto): resta un controllo generico.
+  if(/sigill.*amid/i.test(all))issues.push('spiegazione pseudotecnica non ammessa (falsa precisione, es. "la tostatura sigilla l\'amido")');
+  // Il controllo sul gesto scorretto ("si frusta invece di mantecare") riguarda specificamente
+  // il risotto: prima di questa correzione la regex `frusta.*ris` scattava su QUALUNQUE piatto
+  // contenente "frusta" seguito, ovunque più avanti nel testo, dalla sola sequenza "ris" — che
+  // compare in moltissime parole italiane comuni (risultato, riscaldare, riserva...). Bug reale
+  // osservato il 21 agosto 2026 su una proposta di seppia, senza alcun risotto coinvolto (cfr.
+  // EVIDENCE.md, "Deployment reale — VM Google Cloud e bot Telegram"). Ora il controllo si
+  // applica solo quando il piatto è davvero un risotto.
+  const isRisotto=/risott/i.test(`${title} ${principle} ${context.raw||''}`);
+  if(isRisotto&&/frusta/i.test(all))issues.push('gesto scorretto sul risotto: si manteca con movimento rotatorio, non si frusta');
   if(/vongol/i.test(`${title} ${context.raw||''}`)){
     if(/cornmeal|farina di mais|semola.*purg/i.test(all+' '+d.shopping.join(' ')))issues.push('semola/cornmeal nella purga non ammessa senza fonte primaria specifica');
     if(/10\s*g\s*\/\s*l/i.test(all))issues.push('acqua della pasta troppo salata rispetto al liquido delle vongole');

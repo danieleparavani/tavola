@@ -59,7 +59,7 @@ const dishes={
   }
 };
 
-const buttons={start:[['💡 Cerco un’idea','🛒 Sto facendo la spesa'],['🍳 Ho gli ingredienti, cuciniamo']],proposal:[['✅ Mi piace','🔄 Altra idea'],['🛒 Prepara la lista','📚 Fonti e scelte']],mode:[['👣 Guidami','📋 Fammi leggere tutto'],['⚡ Solo punti critici']],step:[['✅ Fatto, avanti','❓ Ho un dubbio'],['🔬 Perché?']],dplus:[['✨ Una curiosità in più'],['🧭 Nel mio percorso','Basta così']]};
+const buttons={start:[['💡 Cerco un’idea','🛒 Sto facendo la spesa'],['🍳 Ho gli ingredienti, cuciniamo']],proposal:[['✅ Mi piace','🔄 Altra idea'],['🛒 Prepara la lista','📚 Fonti e scelte']],mode:[['👣 Guidami','📋 Fammi leggere tutto'],['⚡ Solo punti critici']],step:[['✅ Fatto, avanti','❓ Ho un dubbio'],['🔬 Perché?']],dplus:[['✨ Una curiosità in più'],['🧭 Nel mio percorso','Basta così']],peopleQuick:[['1','2'],['3','4'],['5+']],timeQuick:[['15 min','30 min'],['45 min','1 ora'],['più di un\'ora']]};
 const event=(u,type,payload={})=>u.events.push({type,payload,at:new Date().toISOString(),sessionId:u.session?.id||null});
 const reply=(text,keyboard=null,extra={})=>({text,keyboard,...extra});
 const norm=s=>String(s||'').trim().toLowerCase();
@@ -80,21 +80,45 @@ export async function handle(user,input,{source='simulator'}={}){
     return reply(`Ciao ${user.name}. Da dove partiamo?`,buttons.start);
   }
   if(dormant&&isIntentChoice(n)){
-    user.state='collecting_context';user.context={people:null,time:null,ingredients:[],constraints:[],intent:parseIntent(n)};event(user,'new_chapter_started',{intent:user.context.intent,trigger:'intent_button'});return reply(contextPrompt(user.context.intent))
+    user.state='collecting_people';user.context={people:null,time:null,ingredients:[],constraints:[],intent:parseIntent(n)};event(user,'new_chapter_started',{intent:user.context.intent,trigger:'intent_button'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)
   }
   if(dormant&&!isDplusFollowup){
     user.state='locating';user.context={people:null,time:null,ingredients:[],constraints:[],intent:null};user.session=null;event(user,'new_chapter_started',{intent:null,trigger:'freeform_message'});
     return reply(`Ciao ${user.name}. Da dove partiamo?`,buttons.start);
   }
   if(user.state==='locating'){
-    if(!isIntentChoice(n))return reply('Scegli il punto di partenza: un’idea, la spesa oppure cucinare con ciò che hai.',buttons.start);user.context.intent=parseIntent(n);user.state='collecting_context';return reply(contextPrompt(user.context.intent));
+    if(!isIntentChoice(n))return reply('Scegli il punto di partenza: un’idea, la spesa oppure cucinare con ciò che hai.',buttons.start);user.context.intent=parseIntent(n);user.state='collecting_people';return reply('Per quante persone cuciniamo?',buttons.peopleQuick);
+  }
+  // Raccolta contesto (D-027): persone e tempo hanno tasti rapidi dedicati (collecting_people,
+  // collecting_time); l'ingrediente resta l'ultima domanda, a testo libero, e mantiene il nome
+  // di stato 'collecting_context' per minimizzare l'impatto sul resto del codice che vi fa
+  // riferimento (test, eventi, dashboard). In ciascuno dei tre stati un solo messaggio che
+  // contenga già tutto (persone, tempo e ingrediente insieme) salta direttamente alle tre
+  // direzioni gastronomiche tramite tryOneShot — la scorciatoia resta sempre disponibile.
+  if(user.state==='collecting_people'){
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;event(user,'intent_changed',{intent:user.context.intent});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    const shortcut=await tryOneShot(user,text,n);if(shortcut)return shortcut;
+    const people=parsePeopleLoose(text);
+    if(!people){event(user,'people_unrecognized',{text});return reply('Non ho capito il numero di persone: scegli un tasto oppure scrivimelo (es. “3 persone”).',buttons.peopleQuick)}
+    user.context.people=people;user.state='collecting_time';event(user,'people_captured',{people});
+    return reply('Quanto tempo hai a disposizione?',buttons.timeQuick);
+  }
+  if(user.state==='collecting_time'){
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    const shortcut=await tryOneShot(user,text,n);if(shortcut)return shortcut;
+    const time=parseTimeLoose(text);
+    if(!time){event(user,'time_unrecognized',{text});return reply('Non ho capito il tempo disponibile: scegli un tasto oppure scrivimelo (es. “45 minuti”).',buttons.timeQuick)}
+    user.context.time=time;user.state='collecting_context';event(user,'time_captured',{time});
+    return reply(ingredientPrompt(user.context.intent));
   }
   if(user.state==='collecting_context'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);return reply(contextPrompt(user.context.intent))}
-    user.context.people=parsePeople(text);user.context.time=parseTime(text);user.context.raw=text;user.context.ingredients=extractIngredients(n);
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(!user.context.people)user.context.people=parsePeopleLoose(text);
+    if(!user.context.time)user.context.time=parseTimeLoose(text);
+    user.context.raw=text;user.context.ingredients=extractIngredients(n);
     event(user,'context_captured',{...user.context});
     const missing=[];if(!user.context.people)missing.push('per quante persone');if(!user.context.time)missing.push('quanto tempo hai');if(!hasFoodRequest(text))missing.push('ingrediente o piatto desiderato');
-    if(missing.length){event(user,'context_missing',{missing});return reply(`Mi manca ${missing.join(', ')}. Scrivimi questi dati in una sola frase: per esempio “2 persone, 45 minuti, voglio usare le vongole”.`)}
+    if(missing.length){event(user,'context_missing',{missing});return reply(`Mi manca ${missing.join(', ')}. Scrivimelo pure liberamente, anche a voce.`)}
     return await proposeDifficultyMenu(user);
   }
   if(user.state==='difficulty_choice'){
@@ -170,14 +194,38 @@ function currentDish(user){return user.session?.generatedDish||dishes[user.sessi
 function cookingReply(user){const d=currentDish(user),i=user.session.step,s=d.steps[i];event(user,'step_shown',{step:i,mode:user.session.mode});const isCritical=i===d.steps.length-1||norm(s.term)===norm(d.principle.term);if(user.session.mode==='essential'&&!isCritical)return reply(`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}`,buttons.step,{parseMode:'Markdown'});return reply(`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}\n\n👁 **Osserva:** ${s.observe}`,buttons.step,{parseMode:'Markdown'})}
 function parsePeople(text){return text.match(/\b([1-9]\d?)\s*(persone|persona|commensali)\b/i)?.[1]||null}
 function parseTime(text){const hours=text.match(/\b(\d+(?:[.,]\d+)?)\s*(ora|ore|oretta)\b/i)?.[1];if(hours)return String(Math.round(parseFloat(hours.replace(',','.'))*60));return text.match(/\b(\d{1,3})\s*(min|minuti)\b/i)?.[1]||null}
+// Parser "morbidi" (D-027): riconoscono anche le etichette dei tasti rapidi (persone: 1/2/3/4/5+;
+// tempo: 15 min/30 min/45 min/1 ora/più di un'ora) oltre a tutto ciò che i parser rigorosi
+// sopra già riconoscevano nel testo libero. "5+" e "più di un'ora" non hanno un numero
+// esplicito nel testo del tasto: mappiamo il primo su 5 persone e il secondo su 90 minuti
+// come valore rappresentativo, coerente con l'uso di context.time come minuti interi nel
+// laboratorio generativo (core/lab.mjs).
+function parsePeopleLoose(text){const raw=String(text||'').trim();if(/^5\s*\+$/.test(raw))return '5';if(/^[1-4]$/.test(raw))return raw;return parsePeople(text)}
+function parseTimeLoose(text){const raw=String(text||'');if(/pi[uù]\s*di\s*un.?ora/i.test(raw))return '90';return parseTime(text)}
 function extractIngredients(n){const found=[];if(n.includes('trigli'))found.push('triglia');if(n.includes('alici'))found.push('alici');if(n.includes('acciugh'))found.push('acciughe');return found}
 function isIntentChoice(n){return n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo')}
 function parseIntent(n){return n.includes('spesa')?'shopping':n.includes('cuciniamo')?'cook':'idea'}
-function contextPrompt(intent){return intent==='shopping'?'Per quante persone, quanto tempo avrai e quali ingredienti stai valutando? Puoi scriverlo o usare il vocale.':intent==='cook'?'Per quante persone cucini, quanto tempo hai e quali ingredienti sono disponibili? Puoi scriverlo o usare il vocale.':'Per quante persone, quanto tempo hai e quale ingrediente o piatto vorresti esplorare? Puoi scriverlo o usare il vocale.'}
+// Con i tasti rapidi (D-027) persone e tempo hanno domande proprie (vedi handle()); questa
+// prompt resta solo per l'ultima domanda, sempre a testo libero per non ridurre l'ampiezza
+// degli ingredienti a un menu chiuso (D-014).
+function ingredientPrompt(intent){return intent==='shopping'?'Quali ingredienti stai valutando al supermercato? Puoi scriverlo o usare il vocale.':intent==='cook'?'Quali ingredienti hai già, o quale piatto vorresti fare? Puoi scriverlo o usare il vocale.':'Quale ingrediente o piatto vorresti esplorare? Puoi scriverlo o usare il vocale.'}
+// Scorciatoia "one-shot" (D-027): se un solo messaggio — anche dettato tutto insieme in auto
+// o al supermercato — contiene già persone, tempo e ingrediente, si salta direttamente alle
+// tre direzioni gastronomiche, senza obbligare comunque a passare dai singoli tasti. Usa i
+// valori già raccolti nel contesto quando il messaggio corrente non li ripete (es. in
+// collecting_time, dove le persone sono già note dal passaggio precedente).
+async function tryOneShot(user,text,n){
+  const people=parsePeopleLoose(text)||user.context.people;
+  const time=parseTimeLoose(text)||user.context.time;
+  if(!people||!time||!hasFoodRequest(text))return null;
+  user.context.people=people;user.context.time=time;user.context.raw=text;user.context.ingredients=extractIngredients(n);
+  event(user,'context_captured',{...user.context,source:'one_shot'});
+  return await proposeDifficultyMenu(user);
+}
 function hasFoodRequest(text){return /[a-zà-ù]{4,}/i.test(String(text).replace(/persone?|commensali|minuti?|oretta|ore|tempo|preparazione|ingrediente|principale|voglio|vorrei|fare|usare/gi,''))}
 function nextMorningIso(){const d=new Date();d.setDate(d.getDate()+1);d.setHours(8,30,0,0);return d.toISOString()}
 export function dplus(user){const pending=user.pendingDplus;if(!pending)return reply('Non ci sono D+1 in attesa.');if(Date.now()<Date.parse(pending.dueAt))return reply('Il D+1 sarà disponibile domattina alle 8:30.');event(user,'dplus_delivered',{dishId:pending.dishId,sourceSessionId:pending.sessionId});user.pendingDplus=null;user.state='dplus';return reply(`☀️ **25 secondi**\n\n${pending.text}`,buttons.dplus,{parseMode:'Markdown'})}
 export function publicUser(u){return {id:u.id,name:u.name,state:u.state,context:u.context,session:u.session,pendingDplus:u.pendingDplus||null,competencies:u.competencies,events:u.events}}
 export function logDashboardOpened(u){event(u,'dashboard_opened',{})}
 // Esportate solo per i test automatici (funzioni pure, nessun cambiamento di comportamento).
-export {parsePeople,parseTime,hasFoodRequest,isIntentChoice,parseIntent,extractIngredients};
+export {parsePeople,parseTime,parsePeopleLoose,parseTimeLoose,hasFoodRequest,isIntentChoice,parseIntent,extractIngredients};
