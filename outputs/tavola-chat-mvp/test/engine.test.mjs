@@ -270,7 +270,7 @@ test('gate editoriale: una bozza debole viene respinta e Tavola si astiene invec
     queueResponse(weakDish);
     queueResponse(weakDish);
     const out = await handle(u, { text: 'gourmet' });
-    assert.equal(u.state, 'collecting_context'); // torna in raccolta contesto, non mostra la ricetta
+    assert.equal(u.state, 'difficulty_choice'); // dopo il fix del 26 agosto: torna a scegliere un livello (context.difficultyIdeas esiste ancora), non riparte da zero
     assert.match(out.text, /respinto/i);
     const gateEvent = [...u.events].reverse().find(e => e.type === 'editorial_gate_rejected');
     assert.ok(gateEvent, 'atteso un evento editorial_gate_rejected');

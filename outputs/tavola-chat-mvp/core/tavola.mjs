@@ -184,6 +184,10 @@ async function proposeFromLab(user,followup=''){
     if(error.message.startsWith('EDITORIAL_GATE_FAILED:')){
       const issues=error.issues||error.message.slice('EDITORIAL_GATE_FAILED:'.length).split(' | ');
       event(user,'editorial_gate_rejected',{issues});
+      if(user.context.difficultyIdeas){
+        user.state='difficulty_choice';
+        return reply(`Ho respinto la proposta perché non superava il controllo gastronomico: ${issues.join('; ')} Puoi scegliere un'altra delle tre direzioni, oppure scrivere un ingrediente diverso per ricominciare.`, difficultyButtons(user.context.difficultyIdeas), {parseMode:'Markdown'});
+      }
       return reply(`Ho respinto la proposta perché non superava il controllo gastronomico: ${issues.join('; ')}. Non te la presento come ricetta affidabile.`);
     }
     event(user,'lab_generation_failed',{message:error.message.slice(0,500)});
