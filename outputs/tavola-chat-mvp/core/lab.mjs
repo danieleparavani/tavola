@@ -87,3 +87,17 @@ export async function assessReflection(dish,reflection){
   if(!response.ok)return 'Registro l’osservazione come ipotesi da verificare: non ho basi sufficienti per approvarla automaticamente.';
   const data=await response.json();return data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text||data.output_text||'Osservazione registrata come ipotesi da verificare.';
 }
+
+
+export async function answerCookingDoubt(dish,step,doubt){
+  const fallback=step.help||'Non riesco a rispondere in modo specifico ora: prosegui pure con il passaggio corrente.';
+  if(!labAvailable())return fallback;
+  const body={model:process.env.OPENAI_MODEL||'gpt-5-mini',reasoning:{effort:'low'},store:false,instructions:"Sei l'assistente tecnico di Tavola durante la cucina guidata. L'utente ha un dubbio specifico nel mezzo di un passaggio. Rispondi in italiano, al massimo 60 parole, in modo pratico e diretto al dubbio posto, senza ripetere il passaggio per intero. Se il dubbio riguarda un ingrediente vecchio, mancante o diverso, valuta se e come sostituirlo o adattare la tecnica. Se emerge un rischio di sicurezza concreto e non ovvio, dillo chiaramente. Non inventare percentuali, tempi precisi o fonti non presenti nella ricetta.",input:`Piatto: ${dish.name}\nPassaggio corrente: ${step.title}\nAzione prevista: ${step.action}\nOsservazione attesa: ${step.observe}\nDubbio dell'utente: ${doubt}`};
+  try{
+    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify(body)});
+    if(!response.ok)return fallback;
+    const data=await response.json();
+    return data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text||data.output_text||fallback;
+  }catch(e){return fallback;}
+}
+

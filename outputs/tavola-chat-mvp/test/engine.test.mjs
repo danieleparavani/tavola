@@ -306,6 +306,29 @@ test('impiattamento: l’ultimo passaggio compare sempre, anche in modalità "so
   }
 });
 
+test('cooking: un dubbio libero non riconosciuto riceve una risposta reale, non il messaggio di stallo generico', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('doubtfree1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: 'Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' }); // proposal -> mode
+    await handle(u, { text: 'Guidami' }); // mode -> cooking
+    queueResponse({ output_text: 'Il basilico vecchio ma non ammuffito va bene: sostituiscilo solo se ammuffito o troppo secco.' });
+    const out = await handle(u, { text: 'questo basilico sembra troppo vecchio, meglio cambiarlo?' });
+    assert.doesNotMatch(out.text, /Resto sul passaggio corrente/);
+    assert.match(out.text, /basilico/);
+    assert.ok(u.events.some(e => e.type === 'doubt_asked'));
+    assert.ok(u.events.some(e => e.type === 'doubt_answered'));
+  } finally {
+    restoreFetch();
+  }
+});
+
 // --- simulazione vs esperienza reale --------------------------------------------------
 
 test('simulazione: passaggi completati in pochi secondi vengono registrati come simulazione, non come competenza acquisita', async () => {

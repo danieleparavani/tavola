@@ -1,4 +1,4 @@
-import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection} from './lab.mjs';
+import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt} from './lab.mjs';
 
 // NOTA: questi tre piatti editoriali (alici, triglia in due varianti) sono gold example
 // verificati manualmente (cfr. EVIDENCE.md, Esperimento 1). Da quando il laboratorio
@@ -155,7 +155,7 @@ export async function handle(user,input,{source='simulator'}={}){
     if(n.includes('non è cambiato')||n.includes('non e cambiato'))return reply('Descrivimi ciò che vedi oppure manda una foto. Se mancano elementi sufficienti, ti dirò esplicitamente cosa non posso determinare.');
     if(n.includes('risolto'))return reply('Bene. Riprendiamo dal passaggio corrente.',buttons.step);
     if(n.includes('avanti')||n.includes('inizia')){const now=Date.now(),elapsed=user.session.lastStepAt?Math.round((now-user.session.lastStepAt)/1000):null;user.session.lastStepAt=now;event(user,'step_completed',{step:user.session.step,elapsedSeconds:elapsed,pace:elapsed!==null&&elapsed<15?'rapid_test':'plausible'});if(user.session.step===d.steps.length-1){user.state='closure';event(user,'cooking_completed');return reply(d.closure,d.closureButtons)}user.session.step++;return cookingReply(user)}
-    return reply('Resto sul passaggio corrente. Puoi dirmi “fatto, avanti”, chiedere “perché?” oppure descrivere un dubbio.',buttons.step);
+    event(user,'doubt_asked',{step:user.session.step});const doubtAnswer=await answerCookingDoubt(d,s,text);event(user,'doubt_answered',{step:user.session.step});return reply(doubtAnswer,[['✅ Risolto','🆘 Non è cambiato'],['🔬 Perché?']]);
   }
   if(user.state==='closure'){user.session.answers.result=text;user.session.isSimulation=n.includes('simulazione')||n.includes('non l’ho cucinato')||n.includes('non l ho cucinato');user.state='reflection';event(user,'result_reported',{answer:text,isSimulation:user.session.isSimulation});return reply(user.session.isSimulation?'Questa prova sarà registrata come simulazione dell’interfaccia, non come esperienza culinaria. Quale punto della proposta cambieresti?':'Una sola cosa: cosa rifaresti uguale o cambieresti?')}
   if(user.state==='reflection'){
