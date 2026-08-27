@@ -1,4 +1,4 @@
-import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';import {newUser,handle,dplus,publicUser,logDashboardOpened} from './core/tavola.mjs';import {labAvailable} from './core/lab.mjs';
+import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';import {newUser,handle,dplus,publicUser,logDashboardOpened,isDplusDue} from './core/tavola.mjs';import {labAvailable} from './core/lab.mjs';
 import {loadProtectedKey,saveProtectedKey} from './core/key-store.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));const pub=path.join(root,'public');const dataDir=path.join(root,'data');const dataFile=path.join(dataDir,'pilot.json');fs.mkdirSync(dataDir,{recursive:true});
 if(!process.env.OPENAI_API_KEY)process.env.OPENAI_API_KEY=loadProtectedKey();
@@ -28,7 +28,49 @@ const server=http.createServer(async(req,res)=>{try{const url=new URL(req.url,'h
 
 
 
-async function telegramUpdate(update){const msg=update.message||update.callback_query?.message;if(!msg)return;const from=update.message?.from||update.callback_query?.from;const text=update.callback_query?.data||update.message?.text||update.message?.caption||('[contenuto multimediale]');const id='tg-'+from.id;const u=db.users[id]??=newUser(id,from.first_name||'Tester');if(u.state==='difficulty_choice')await sendTelegram(msg.chat.id,{text:'Sto pensando alla proposta...'});const out=await handle(u,{text,voice:Boolean(update.message?.voice),photo:Boolean(update.message?.photo)},{source:'telegram'});save();await sendTelegram(msg.chat.id,out);}
+// Consenso (Fase 1, item "Aggiungere gestione delle preferenze e consenso"): un messaggio unico,
+// mostrato solo al primo contatto reale di un utente Telegram nuovo, prima di qualunque altra
+// risposta. Chi esisteva già prima di questa funzionalità viene considerato consenziente
+// retroattivamente (u.consentAt===undefined -> valorizzato subito) per non interrompere
+// conversazioni già in corso. Il consenso via email resta previsto da PROJECT.md per l'invito;
+// questo è un livello minimo aggiuntivo, specifico del canale Telegram.
+const CONSENT_TEXT='Prima di iniziare: Tavola registra le tue sessioni (ingredienti, scelte, principio tecnico praticato) per costruire nel tempo una mappa della tua competenza in cucina, consultabile anche nella dashboard. Questi dati restano tuoi: puoi chiederne la revisione o la cancellazione quando vuoi, scrivendo al progettista.';
+const CONSENT_BUTTON='Ho capito, iniziamo';
+async function telegramUpdate(update){
+  const msg=update.message||update.callback_query?.message;if(!msg)return;
+  const from=update.message?.from||update.callback_query?.from;
+  const text=update.callback_query?.data||update.message?.text||update.message?.caption||('[contenuto multimediale]');
+  const id='tg-'+from.id;
+  const isBrandNew=!db.users[id];
+  const u=db.users[id]??=newUser(id,from.first_name||'Tester');
+  if(u.consentAt===undefined)u.consentAt=isBrandNew?null:new Date().toISOString();
+  if(!u.consentAt){
+    if(String(text||'').trim().toLowerCase().includes('ho capito')){u.consentAt=new Date().toISOString();save()}
+    else{save();await sendTelegram(msg.chat.id,{text:CONSENT_TEXT,keyboard:[[CONSENT_BUTTON]]});return}
+  }
+  if(u.state==='difficulty_choice')await sendTelegram(msg.chat.id,{text:'Sto pensando alla proposta...'});
+  const out=await handle(u,{text,voice:Boolean(update.message?.voice),photo:Boolean(update.message?.photo)},{source:'telegram'});save();await sendTelegram(msg.chat.id,out);
+}
+// Consegna proattiva del D+1 (Fase 1, item "Programmare il D+1 in una fascia scelta dall'utente"):
+// senza questo controllo periodico il D+1 restava pronto ma silente finché l'utente non riscriveva
+// da solo (consegna reattiva, ancora usata come fallback in dplus()). Solo utenti Telegram reali
+// (id 'tg-...') vengono contattati da soli: gli utenti del simulatore/dashboard non hanno una chat
+// reale a cui scrivere. isDplusDue viene condiviso con core/tavola.mjs per non duplicare la
+// definizione di "scaduto" tra le due strade di consegna.
+async function checkProactiveDplus(){
+  let changed=false;
+  for(const u of Object.values(db.users)){
+    if(u.id.startsWith('tg-')&&u.state==='waiting_dplus'&&isDplusDue(u)){
+      const chatId=Number(u.id.slice(3));
+      const out=dplus(u,{proactive:true});
+      changed=true;
+      await sendTelegram(chatId,out).catch(e=>console.error('invio proattivo D+1 fallito',u.id,e));
+    }
+  }
+  if(changed)save();
+}
+checkProactiveDplus().catch(e=>console.error('checkProactiveDplus fallito',e));
+setInterval(()=>{checkProactiveDplus().catch(e=>console.error('checkProactiveDplus fallito',e))},60*1000);
 function truncateBytes(str,maxBytes){let bytes=0,result='';for(const ch of String(str)){const b=Buffer.byteLength(ch,'utf8');if(bytes+b>maxBytes)break;bytes+=b;result+=ch}return result}
 async function sendTelegram(chatId,out){const token=process.env.TELEGRAM_BOT_TOKEN;if(!token)return;const reply_markup=out.keyboard?{inline_keyboard:out.keyboard.map(row=>row.map(text=>({text,callback_data:truncateBytes(text,64)})))}:undefined;const res=await fetch(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,text:out.text,parse_mode:out.parseMode,reply_markup})});if(!res.ok){const body=await res.text().catch(()=>'');console.error('Telegram sendMessage failed',res.status,body)}}
 const port=Number(process.env.PORT||4310),host=process.env.HOST||'127.0.0.1';server.listen(port,host,()=>console.log(`Tavola: http://localhost:${port}`));

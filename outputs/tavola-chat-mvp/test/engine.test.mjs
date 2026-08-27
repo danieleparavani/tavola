@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newUser, handle, dplus, publicUser } from '../core/tavola.mjs';
+import { newUser, handle, dplus, publicUser, isDplusDue } from '../core/tavola.mjs';
 
 // Il laboratorio generativo richiede una chiave presente nell'ambiente: per i test la
 // impostiamo a un valore fittizio e intercettiamo `fetch` così nessuna chiamata di rete
@@ -407,6 +407,69 @@ test('D+1 differito: viene consegnato quando la scadenza è passata, e apre un f
   assert.equal(u.pendingDplus, null);
   assert.equal(u.state, 'dplus');
   assert.ok(out.keyboard); // le opzioni di follow-up (curiosità extra / percorso) ora sono davvero mostrate
+});
+
+// --- fascia oraria del D+1 scelta dall'utente -------------------------------------------
+
+test('un nuovo utente ha come default 08:30 per il D+1, ma può cambiarlo con un orario libero', async () => {
+  const u = newUser('dplustime1', 'Tester');
+  assert.equal(u.preferences.dplusTime, '08:30');
+  u.state = 'dplus';
+  const asked = await handle(u, { text: '⏰ Cambia orario D+1' });
+  assert.equal(u.state, 'awaiting_dplus_time');
+  assert.match(asked.text, /orario/i);
+  const changed = await handle(u, { text: 'alle 9' });
+  assert.equal(u.preferences.dplusTime, '09:00');
+  assert.equal(u.state, 'dplus');
+  assert.match(changed.text, /09:00/);
+});
+
+test('un orario non riconosciuto durante il cambio non modifica la preferenza e chiede di nuovo', async () => {
+  const u = newUser('dplustime2', 'Tester');
+  u.state = 'awaiting_dplus_time';
+  const out = await handle(u, { text: 'boh, non saprei' });
+  assert.equal(u.state, 'awaiting_dplus_time');
+  assert.equal(u.preferences.dplusTime, '08:30');
+  assert.match(out.text, /orario/i);
+});
+
+test('la fascia scelta viene usata per calcolare la prossima scadenza del D+1', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('dplustime3', 'Tester');
+    u.preferences.dplusTime = '07:15';
+    u.state = 'reflection';
+    u.session = { id: 's1', dishId: 'alici', generatedDish: null, principle: 'p', step: 4, mode: 'guided', answers: {}, isSimulation: false };
+    queueResponse({ output_text: 'Osservazione plausibile ma da verificare ancora una volta.' }); // assessReflection
+    await handle(u, { text: 'rifarei tutto uguale' });
+    const due = new Date(u.pendingDplus.dueAt);
+    assert.equal(due.getHours(), 7);
+    assert.equal(due.getMinutes(), 15);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('isDplusDue riflette correttamente se la scadenza è passata', () => {
+  const u = newUser('dplustime4', 'Tester');
+  u.pendingDplus = { dueAt: new Date(Date.now() + 1000).toISOString(), dishId: 'x', text: 't', curiosity: 'c', sessionId: 's1' };
+  assert.equal(isDplusDue(u), false);
+  u.pendingDplus.dueAt = new Date(Date.now() - 1000).toISOString();
+  assert.equal(isDplusDue(u), true);
+});
+
+test('la consegna proattiva (scheduler) registra delivery:"proactive" nell\'evento, quella reattiva "reactive"', () => {
+  const u1 = newUser('dplustime5', 'Tester');
+  u1.pendingDplus = { dueAt: new Date(Date.now() - 1000).toISOString(), dishId: 'x', text: 't', curiosity: 'c', sessionId: 's1' };
+  dplus(u1, { proactive: true });
+  const ev1 = [...u1.events].reverse().find(e => e.type === 'dplus_delivered');
+  assert.equal(ev1.payload.delivery, 'proactive');
+
+  const u2 = newUser('dplustime6', 'Tester');
+  u2.pendingDplus = { dueAt: new Date(Date.now() - 1000).toISOString(), dishId: 'x', text: 't', curiosity: 'c', sessionId: 's1' };
+  dplus(u2);
+  const ev2 = [...u2.events].reverse().find(e => e.type === 'dplus_delivered');
+  assert.equal(ev2.payload.delivery, 'reactive');
 });
 
 // --- il capitolo non resta mai bloccato dopo il D+1 (bug critico corretto) ------------

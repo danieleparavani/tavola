@@ -116,33 +116,85 @@ fs.rmSync(dir, { recursive: true, force: true });
 }
 });
 
-test('webhook Telegram: risponde subito (fire-and-forget) e processa comunque il messaggio', async () => {
+test('webhook Telegram: risponde subito (fire-and-forget) e processa comunque il messaggio dopo il consenso', async () => {
   const dir = setupIsolatedCopy();
   let server = startServer(dir);
   try {
     await waitReady();
-    const update = {
-      message: {
-        message_id: 1,
-        from: { id: 999888777, first_name: 'TestTG' },
-        chat: { id: 999888777 },
-        text: 'ciao'
-      }
+    const baseUpdate = {
+      message_id: 1,
+      from: { id: 999888777, first_name: 'TestTG' },
+      chat: { id: 999888777 },
     };
-    const r = await fetch(`${BASE}/telegram/webhook`, {
+    const post = body => fetch(`${BASE}/telegram/webhook`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(update)
+      body: JSON.stringify(body)
     });
-    assert.equal(r.status, 200);
-    const resBody = await r.json();
-    assert.equal(resBody.ok, true);
+    const waitForUser = async () => {
+      for (let i = 0; i < 30; i++) {
+        const ru = await fetch(`${BASE}/api/user/tg-999888777`);
+        if (ru.status === 200) return ru.json();
+        await new Promise(res => setTimeout(res, 100));
+      }
+      return null;
+    };
+
+    // Primo contatto: risposta immediata del webhook, ma il consenso non è ancora dato,
+    // quindi il capitolo non deve ancora essere avviato (D-0xx, gestione preferenze e consenso).
+    const r1 = await post({ message: { ...baseUpdate, text: 'ciao' } });
+    assert.equal(r1.status, 200);
+    assert.equal((await r1.json()).ok, true);
+    const afterFirst = await waitForUser();
+    assert.ok(afterFirst, 'l\'utente deve essere creato anche solo al primo contatto');
+    assert.equal(afterFirst.state, 'new');
+
+    // Consenso dato: il messaggio successivo apre normalmente il capitolo.
+    const r2 = await post({ message: { ...baseUpdate, message_id: 2, text: 'Ho capito, iniziamo' } });
+    assert.equal(r2.status, 200);
     let state = null;
     for (let i = 0; i < 30; i++) {
       const ru = await fetch(`${BASE}/api/user/tg-999888777`);
-      if (ru.status === 200) { state = (await ru.json()).state; break; }
+      if (ru.status === 200) { state = (await ru.json()).state; if (state === 'locating') break; }
       await new Promise(res => setTimeout(res, 100));
     }
     assert.equal(state, 'locating');
+  } finally {
+    await stopServer(server);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('webhook Telegram: un utente Telegram già esistente prima di questa funzionalità non viene bloccato dal consenso', async () => {
+  const dir = setupIsolatedCopy();
+  // Simula un utente reale creato prima dell'introduzione del consenso (D-0xx): esiste già
+  // su disco, a metà conversazione, senza il campo consentAt.
+  fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'data', 'pilot.json'), JSON.stringify({
+    telegramOffset: 0,
+    users: {
+      'tg-111222333': {
+        id: 'tg-111222333', name: 'Vecchio', state: 'collecting_people',
+        context: { people: null, time: null, ingredients: [], constraints: [], intent: 'idea' },
+        session: null, pendingDplus: null, competencies: {}, events: [],
+        preferences: { dplusTime: '08:30' },
+      },
+    },
+  }));
+  let server = startServer(dir);
+  try {
+    await waitReady();
+    const r = await fetch(`${BASE}/telegram/webhook`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: { message_id: 1, from: { id: 111222333, first_name: 'Vecchio' }, chat: { id: 111222333 }, text: '3' } })
+    });
+    assert.equal(r.status, 200);
+    let user = null;
+    for (let i = 0; i < 30; i++) {
+      const ru = await fetch(`${BASE}/api/user/tg-111222333`);
+      if (ru.status === 200) { user = await ru.json(); if (user.state === 'collecting_time') break; }
+      await new Promise(res => setTimeout(res, 100));
+    }
+    assert.equal(user.state, 'collecting_time'); // ha proseguito, non è stato rimandato al consenso
   } finally {
     await stopServer(server);
     fs.rmSync(dir, { recursive: true, force: true });

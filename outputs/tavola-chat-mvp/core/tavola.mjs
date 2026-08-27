@@ -59,12 +59,12 @@ const dishes={
   }
 };
 
-const buttons={start:[['💡 Cerco un’idea','🛒 Sto facendo la spesa'],['🍳 Ho gli ingredienti, cuciniamo']],proposal:[['✅ Mi piace','🔄 Altra idea'],['🛒 Prepara la lista','📚 Fonti e scelte']],mode:[['👣 Guidami','📋 Fammi leggere tutto'],['⚡ Solo punti critici']],step:[['✅ Fatto, avanti','❓ Ho un dubbio'],['🔬 Perché?']],dplus:[['✨ Una curiosità in più'],['🧭 Nel mio percorso','Basta così']],peopleQuick:[['1','2'],['3','4'],['5+']],timeQuick:[['15 min','30 min'],['45 min','1 ora'],['più di un\'ora']]};
+const buttons={start:[['💡 Cerco un’idea','🛒 Sto facendo la spesa'],['🍳 Ho gli ingredienti, cuciniamo']],proposal:[['✅ Mi piace','🔄 Altra idea'],['🛒 Prepara la lista','📚 Fonti e scelte']],mode:[['👣 Guidami','📋 Fammi leggere tutto'],['⚡ Solo punti critici']],step:[['✅ Fatto, avanti','❓ Ho un dubbio'],['🔬 Perché?']],dplus:[['✨ Una curiosità in più'],['🧭 Nel mio percorso','Basta così'],['⏰ Cambia orario D+1']],peopleQuick:[['1','2'],['3','4'],['5+']],timeQuick:[['15 min','30 min'],['45 min','1 ora'],['più di un\'ora']]};
 const event=(u,type,payload={})=>u.events.push({type,payload,at:new Date().toISOString(),sessionId:u.session?.id||null});
 const reply=(text,keyboard=null,extra={})=>({text,keyboard,...extra});
 const norm=s=>String(s||'').trim().toLowerCase();
 
-export function newUser(id,name='Tester'){return {id,name,state:'new',context:{people:null,time:null,ingredients:[],constraints:[],intent:null},session:null,pendingDplus:null,competencies:{},events:[]}}
+export function newUser(id,name='Tester'){return {id,name,state:'new',context:{people:null,time:null,ingredients:[],constraints:[],intent:null},session:null,pendingDplus:null,competencies:{},events:[],preferences:{dplusTime:'08:30'}}}
 
 export async function handle(user,input,{source='simulator'}={}){
   const text=String(input.text||input||'').trim(),n=norm(text);
@@ -73,7 +73,7 @@ export async function handle(user,input,{source='simulator'}={}){
   // In questi stati la chat non deve mai restare bloccata: qualunque nuovo messaggio riapre
   // automaticamente un nuovo capitolo, senza richiedere /start (D-021).
   const dormant=user.state==='waiting_dplus'||user.state==='dplus';
-  const isDplusFollowup=dormant&&(n.includes('d+1')||n.includes('curiosità')||n.includes('curiosita')||n.includes('percorso')||n.includes('basta cos'));
+  const isDplusFollowup=dormant&&(n.includes('d+1')||n.includes('curiosità')||n.includes('curiosita')||n.includes('percorso')||n.includes('basta cos')||n.includes('cambia orario'));
 
   if(n==='/start'||n==='/reset'||user.state==='new'){
     user.state='locating';user.context={people:null,time:null,ingredients:[],constraints:[],intent:null};user.session=null;event(user,'onboarding_started');
@@ -159,11 +159,17 @@ export async function handle(user,input,{source='simulator'}={}){
   }
   if(user.state==='closure'){user.session.answers.result=text;user.session.isSimulation=n.includes('simulazione')||n.includes('non l’ho cucinato')||n.includes('non l ho cucinato');user.state='reflection';event(user,'result_reported',{answer:text,isSimulation:user.session.isSimulation});return reply(user.session.isSimulation?'Questa prova sarà registrata come simulazione dell’interfaccia, non come esperienza culinaria. Quale punto della proposta cambieresti?':'Una sola cosa: cosa rifaresti uguale o cambieresti?')}
   if(user.state==='reflection'){
-    const d=currentDish(user);user.session.answers.reflection=text;user.session.completedAt=new Date().toISOString();const rapid=user.events.filter(e=>e.sessionId===user.session.id&&e.type==='step_completed').some(e=>e.payload.pace==='rapid_test');user.session.isSimulation=user.session.isSimulation||rapid;const c=user.competencies[d.competency]??={name:d.competencyName,status:'non_osservato',evidence:[]};if(!user.session.isSimulation){c.status='introdotto';c.evidence.push({type:'exposure_and_report',sessionId:user.session.id,at:user.session.completedAt})}else c.evidence.push({type:'interface_simulation',sessionId:user.session.id,at:user.session.completedAt});user.state='waiting_dplus';user.session.dplusDueAt=nextMorningIso();user.pendingDplus={dueAt:user.session.dplusDueAt,dishId:d.id,text:d.dplus,curiosity:d.curiosity,sessionId:user.session.id};event(user,'session_completed',{dishId:d.id,reflection:text,isSimulation:user.session.isSimulation,dplusDueAt:user.session.dplusDueAt});const assessment=await assessReflection(d,text);event(user,'reflection_assessed',{assessment});
+    const d=currentDish(user);user.session.answers.reflection=text;user.session.completedAt=new Date().toISOString();const rapid=user.events.filter(e=>e.sessionId===user.session.id&&e.type==='step_completed').some(e=>e.payload.pace==='rapid_test');user.session.isSimulation=user.session.isSimulation||rapid;const c=user.competencies[d.competency]??={name:d.competencyName,status:'non_osservato',evidence:[]};if(!user.session.isSimulation){c.status='introdotto';c.evidence.push({type:'exposure_and_report',sessionId:user.session.id,at:user.session.completedAt})}else c.evidence.push({type:'interface_simulation',sessionId:user.session.id,at:user.session.completedAt});user.state='waiting_dplus';user.session.dplusDueAt=nextDueIso(user);user.pendingDplus={dueAt:user.session.dplusDueAt,dishId:d.id,text:d.dplus,curiosity:d.curiosity,sessionId:user.session.id};event(user,'session_completed',{dishId:d.id,reflection:text,isSimulation:user.session.isSimulation,dplusDueAt:user.session.dplusDueAt});const assessment=await assessReflection(d,text);event(user,'reflection_assessed',{assessment});
     return reply(`${assessment}\n\n${user.session.isSimulation?'Sessione registrata come *simulazione*: non aggiorna la competenza.':'Ho registrato il principio come *introdotto*, non come acquisito.'}\n\nIl D+1 arriverà domattina. Questo capitolo è chiuso: quando vuoi iniziarne un altro, dimmi semplicemente dove sei.`,buttons.start,{parseMode:'Markdown'});
   }
   if(user.state==='waiting_dplus'&&n.includes('d+1'))return dplus(user);
-  if(user.state==='dplus'){const d=currentDish(user);if(n.includes('curiosità')||n.includes('curiosita')){event(user,'dplus_curiosity_opened',{dishId:d?.id});return reply(d?.curiosity||'Nessuna curiosità aggiuntiva disponibile per questa esperienza.',buttons.dplus)}if(n.includes('percorso'))return reply('Apri la dashboard: /dashboard',[['🧭 Apri dashboard']]);return reply('Perfetto. Nessun compito per oggi.')}
+  if(user.state==='dplus'){const d=currentDish(user);if(n.includes('curiosità')||n.includes('curiosita')){event(user,'dplus_curiosity_opened',{dishId:d?.id});return reply(d?.curiosity||'Nessuna curiosità aggiuntiva disponibile per questa esperienza.',buttons.dplus)}if(n.includes('percorso'))return reply('Apri la dashboard: /dashboard',[['🧭 Apri dashboard']]);if(n.includes('cambia orario')){user.state='awaiting_dplus_time';event(user,'dplus_time_change_started',{});return reply('A che ora preferisci ricevere il prossimo D+1? Scrivimi un orario, ad esempio "8:00" oppure "alle 9".')}return reply('Perfetto. Nessun compito per oggi.')}
+  if(user.state==='awaiting_dplus_time'){
+    const t=parseClockTime(text);
+    if(!t){event(user,'dplus_time_change_failed',{text});return reply('Non ho riconosciuto l\'orario. Prova con un formato come "8:00" oppure "alle 9".')}
+    user.preferences=user.preferences||{};user.preferences.dplusTime=t;user.state='dplus';event(user,'dplus_time_changed',{time:t});
+    return reply(`Fatto: il prossimo D+1 arriverà verso le ${t}.`,buttons.dplus);
+  }
   return reply('Dimmi dove sei e cosa stai cercando di fare: scegliere la cena, fare la spesa, cucinare o risolvere un problema.');
 }
 
@@ -227,9 +233,21 @@ async function tryOneShot(user,text,n){
   return await proposeDifficultyMenu(user);
 }
 function hasFoodRequest(text){return /[a-zà-ù]{4,}/i.test(String(text).replace(/persone?|commensali|minuti?|oretta|ore|tempo|preparazione|ingrediente|principale|voglio|vorrei|fare|usare/gi,''))}
-function nextMorningIso(){const d=new Date();d.setDate(d.getDate()+1);d.setHours(8,30,0,0);return d.toISOString()}
-export function dplus(user){const pending=user.pendingDplus;if(!pending)return reply('Non ci sono D+1 in attesa.');if(Date.now()<Date.parse(pending.dueAt))return reply('Il D+1 sarà disponibile domattina alle 8:30.');event(user,'dplus_delivered',{dishId:pending.dishId,sourceSessionId:pending.sessionId});user.pendingDplus=null;user.state='dplus';return reply(`☀️ **25 secondi**\n\n${pending.text}`,buttons.dplus,{parseMode:'Markdown'})}
+// Fascia oraria del D+1 (Fase 1, item "Programmare il D+1 in una fascia scelta dall'utente"):
+// per scelta esplicita del progettista, l'utente indica un orario libero (es. "8:00" o "alle 9"),
+// interpretato da parseClockTime; il valore scelto è una preferenza permanente (user.preferences.dplusTime),
+// non legata a una singola sessione. Il default resta 08:30, invariato rispetto al comportamento precedente.
+function nextDueIso(user){const raw=String(user?.preferences?.dplusTime||'08:30');const [h,mi]=raw.split(':').map(Number);const d=new Date();d.setDate(d.getDate()+1);d.setHours(h,mi||0,0,0);return d.toISOString()}
+// Riconosce un orario libero scritto dall'utente (non una durata: vedi invece parseTime/parseTimeLoose
+// sopra, che restano dedicate al "quanto tempo hai per cucinare"). Accetta "8", "8:00", "8.30", "alle 9".
+function parseClockTime(text){const m=String(text||'').match(/(\d{1,2})(?:[:.,](\d{2}))?/);if(!m)return null;const h=Number(m[1]),mi=m[2]?Number(m[2]):0;if(h<0||h>23||mi<0||mi>59)return null;return `${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`}
+// Predicato puro riusato sia dalla consegna reattiva (dplus, sotto) sia dallo scheduler proattivo
+// in server.mjs, così le due strade concordano sempre sulla stessa definizione di "scaduto".
+export function isDplusDue(user){return Boolean(user?.pendingDplus)&&Date.now()>=Date.parse(user.pendingDplus.dueAt)}
+// `proactive` distingue nell'evento se la consegna è stata inviata da sola dallo scheduler della VM
+// oppure mostrata perché l'utente ha riscritto dopo la scadenza (comportamento invariato di default).
+export function dplus(user,{proactive=false}={}){const pending=user.pendingDplus;if(!pending)return reply('Non ci sono D+1 in attesa.');if(!isDplusDue(user))return reply(`Il D+1 sarà disponibile domattina, verso le ${user.preferences?.dplusTime||'08:30'}.`);event(user,'dplus_delivered',{dishId:pending.dishId,sourceSessionId:pending.sessionId,delivery:proactive?'proactive':'reactive'});user.pendingDplus=null;user.state='dplus';return reply(`☀️ **25 secondi**\n\n${pending.text}`,buttons.dplus,{parseMode:'Markdown'})}
 export function publicUser(u){return {id:u.id,name:u.name,state:u.state,context:u.context,session:u.session,pendingDplus:u.pendingDplus||null,competencies:u.competencies,events:u.events}}
 export function logDashboardOpened(u){event(u,'dashboard_opened',{})}
 // Esportate solo per i test automatici (funzioni pure, nessun cambiamento di comportamento).
-export {parsePeople,parseTime,parsePeopleLoose,parseTimeLoose,hasFoodRequest,isIntentChoice,parseIntent,extractIngredients};
+export {parsePeople,parseTime,parsePeopleLoose,parseTimeLoose,hasFoodRequest,isIntentChoice,parseIntent,extractIngredients,parseClockTime};
