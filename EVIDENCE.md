@@ -264,3 +264,35 @@ Suite di test completa eseguita dopo entrambe le correzioni: 52 test, tutti supe
 ### Limite dichiarato di questa verifica
 
 Come nell'audit del 19 agosto, non è stata eseguita alcuna chiamata reale al modello da questo ambiente (nessuna chiave OpenAI disponibile qui, per policy nessuna è stata richiesta né incollata). Le correzioni sono state verificate con la suite automatica e con fixture di test, non con una nuova conversazione reale su Telegram: la verifica su Telegram reale del flusso a tasti (D-027) resta da fare dopo il deploy sulla VM (cfr. `NEXT.md`). Il codice e i documenti canonici sono stati committati e pushati su GitHub al termine di questa sessione; il deploy sulla VM di produzione resta un passaggio separato, non eseguito da qui (nessun accesso diretto alla VM da questo ambiente).
+
+## Continuazione operativa — verifica GitHub/VM e fix latenza webhook (22 agosto 2026)
+
+Partecipante e condizione: sessione di sviluppo (accesso diretto a Cloud Shell/VM e a GitHub via sessione browser autenticata, nessun token incollato in chat), non una sessione di cucina reale.
+
+### Evidenza osservata — stato reale di GitHub e VM all'apertura della sessione
+
+Alla ripresa del lavoro, i documenti canonici allegati al progetto descrivevano ancora come aperti alcuni punti in realtà già risolti in una sessione precedente (fix `callback_data` sincronizzato su GitHub, VM riallineata, D-027 verificato via API locale, bug "risotto" corretto). Verifica diretta su GitHub (`git log`, lettura dei file raw) e sulla VM (`git log`, `npm test`, stato dei servizi) ha confermato che il codice era realmente allineato: VM e `origin/main` allo stesso commit, 52/52 test, servizi `active`, `labConnected:true`. La discrepanza era quindi solo nei documenti canonici del progetto Claude (non riletti dopo l'ultima sessione), non nel codice o nel repository.
+
+### Interpretazione
+
+I documenti canonici (`PROJECT.md`, `DECISIONS.md`, `EVIDENCE.md`, `NEXT.md`) allegati al progetto Claude e il repository GitHub sono due copie distinte: aggiornare l'una non aggiorna automaticamente l'altra. Una sessione che modifica solo il repository (via sandbox o editor GitHub) lascia i documenti del progetto Claude non sincronizzati finché qualcuno non li aggiorna esplicitamente allo stesso modo. Vale la stessa cautela già maturata per VM/GitHub: prima di agire su un punto segnato come aperto, verificare lo stato reale piuttosto che fidarsi ciecamente del testo del documento.
+
+### Decisione
+
+Nessuna nuova decisione di prodotto. Verificati e chiusi nei documenti i punti già risolti nel codice (fix `callback_data`, D-027, bug "risotto"), per eliminare la discrepanza fra documenti e stato reale.
+
+### Failure osservato e corretto — latenza della generazione senza segnale intermedio (ipotesi aperta nella sessione del 21 agosto, ora verificata e risolta)
+
+L'ipotesi lasciata aperta nella sezione "Deployment reale" del 21 agosto — se la latenza della generazione completa dopo la scelta del livello meritasse un messaggio intermedio — è stata verificata leggendo il codice: `server.mjs` attendeva (`await`) il completamento dell'intera elaborazione (`handle()`, inclusa l'eventuale chiamata al laboratorio con ricerca web) prima di rispondere al webhook Telegram con `200 OK`. Questo spiega tecnicamente il `Read timeout expired` già osservato su `getWebhookInfo` dopo la scelta del livello Gourmet: non un guasto, ma un'attesa sincrona superiore al timeout del webhook.
+
+### Decisione
+
+Corretto `server.mjs`: il webhook risponde ora subito (`200 OK`) e l'elaborazione prosegue in background (`telegramUpdate(update).catch(...)`, con log esplicito in caso di errore per non ripetere l'errore già corretto in precedenza sul `callback_data` — un fallimento silenzioso). Aggiunto inoltre l'invio di un messaggio "Sto pensando alla proposta..." quando l'utente si trova nello stato `difficulty_choice` (cioè ha appena scelto un livello), prima della chiamata lenta al laboratorio.
+
+### Verifica successiva
+
+Aggiunto un test di integrazione (`test/server.integration.test.mjs`) che invia un aggiornamento al webhook e verifica sia la risposta immediata (`200`, `{ok:true}`) sia — tramite polling su `/api/user/:id` — che l'elaborazione in background aggiorni comunque correttamente lo stato dell'utente. Suite completa: 53/53 test superati sia sulla VM sia (implicitamente, stesso codice) su quanto pubblicato su GitHub. Fix applicato prima sulla VM (verificato con `npm test`, servizio riavviato, `/api/status` confermato), poi replicato su GitHub (commit `16df30c` per `server.mjs`, `c8624f4` per il test), poi VM riallineata con `git reset --hard origin/main` allo stesso commit.
+
+### Limite dichiarato di questa verifica
+
+Il messaggio "Sto pensando alla proposta..." e la risposta immediata del webhook sono stati verificati con test automatici (incluso un test end-to-end contro un processo server reale, ma senza chiamata reale a Telegram: nessun `TELEGRAM_BOT_TOKEN` impostato in ambiente di test, quindi `sendTelegram` non esegue chiamate di rete durante i test) e con lo stato del servizio sulla VM (attivo, laboratorio collegato). **Non è stata verificata una consegna reale su Telegram**: nessuna conversazione con `@tavola_cucina_bot` è stata avviata da questa sessione. La verifica che il messaggio intermedio arrivi davvero e nell'ordine corretto durante una scelta di livello reale resta da fare dal progettista sul proprio telefono (cfr. `NEXT.md`).
