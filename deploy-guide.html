@@ -1,0 +1,684 @@
+<title>Tavola Cloud Runbook</title>
+<style>
+  :root{
+    --paper:#EDEAE0;
+    --paper-raised:#F6F4EC;
+    --ink:#221F1A;
+    --ink-soft:#4A453B;
+    --muted:#79725F;
+    --line:#DAD3C0;
+    --accent:#2F6F4E;
+    --accent-ink:#F6F4EC;
+    --warn:#A8481E;
+    --warn-soft:#F2E2D6;
+    --done:#3E7A54;
+    --done-soft:#E1EEDF;
+    --code-bg:#20241F;
+    --code-ink:#E9E6DC;
+    --code-line:#37402F;
+    --shadow: 0 1px 2px rgba(34,31,26,0.06), 0 6px 20px rgba(34,31,26,0.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#181A15;
+      --paper-raised:#212319;
+      --ink:#EDEAE0;
+      --ink-soft:#C9C4B4;
+      --muted:#96907C;
+      --line:#34362B;
+      --accent:#6FBE8E;
+      --accent-ink:#122318;
+      --warn:#E38A56;
+      --warn-soft:#332318;
+      --done:#7FCB9A;
+      --done-soft:#17281C;
+      --code-bg:#101410;
+      --code-ink:#E9E6DC;
+      --code-line:#2A2F24;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 6px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#181A15;
+    --paper-raised:#212319;
+    --ink:#EDEAE0;
+    --ink-soft:#C9C4B4;
+    --muted:#96907C;
+    --line:#34362B;
+    --accent:#6FBE8E;
+    --accent-ink:#122318;
+    --warn:#E38A56;
+    --warn-soft:#332318;
+    --done:#7FCB9A;
+    --done-soft:#17281C;
+    --code-bg:#101410;
+    --code-ink:#E9E6DC;
+    --code-line:#2A2F24;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 6px 24px rgba(0,0,0,0.35);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Public Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+    line-height:1.55;
+    font-size:16px;
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001ms !important; transition-duration:0.001ms !important;}
+  }
+
+  a{color:var(--accent)}
+
+  .shell{
+    max-width:1180px;
+    margin:0 auto;
+    padding:2.5rem 1.5rem 6rem;
+    display:grid;
+    grid-template-columns:220px minmax(0,1fr);
+    gap:3rem;
+    align-items:start;
+  }
+  @media (max-width:880px){
+    .shell{grid-template-columns:1fr; padding:1.5rem 1rem 4rem;}
+  }
+
+  header.hero{
+    grid-column:1 / -1;
+    padding-bottom:1.75rem;
+    border-bottom:1px solid var(--line);
+    margin-bottom:0.5rem;
+  }
+  .eyebrow{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:0.72rem;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 0.9rem;
+  }
+  h1{
+    font-family:"Fraunces","Iowan Old Style",Georgia,serif;
+    font-weight:600;
+    font-size:clamp(1.8rem,3.4vw,2.6rem);
+    line-height:1.12;
+    letter-spacing:-0.01em;
+    margin:0 0 0.75rem;
+    text-wrap:balance;
+    color:var(--ink);
+  }
+  .dek{
+    max-width:62ch;
+    color:var(--ink-soft);
+    font-size:1.05rem;
+    margin:0 0 1.1rem;
+  }
+  .hero-meta{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.5rem 1.4rem;
+    font-size:0.85rem;
+    color:var(--muted);
+  }
+  .hero-meta strong{color:var(--ink-soft); font-weight:600}
+
+  nav.rail{
+    position:sticky;
+    top:1.5rem;
+    align-self:start;
+  }
+  @media (max-width:880px){
+    nav.rail{position:static; margin-bottom:0.5rem;}
+  }
+  nav.rail ol{
+    list-style:none;
+    margin:0;
+    padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:0.15rem;
+  }
+  @media (max-width:880px){
+    nav.rail ol{
+      flex-direction:row;
+      flex-wrap:wrap;
+      gap:0.4rem;
+    }
+  }
+  nav.rail a{
+    display:flex;
+    align-items:baseline;
+    gap:0.55rem;
+    text-decoration:none;
+    color:var(--ink-soft);
+    padding:0.4rem 0.5rem;
+    border-radius:6px;
+    font-size:0.88rem;
+    border-left:2px solid transparent;
+  }
+  nav.rail a:hover{background:var(--paper-raised)}
+  nav.rail .num{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:0.72rem;
+    color:var(--muted);
+    min-width:1.1rem;
+  }
+  nav.rail a[data-done="true"] .num{color:var(--done)}
+  nav.rail a[data-done="true"]{color:var(--muted)}
+
+  main{min-width:0}
+
+  section.phase{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:14px;
+    box-shadow:var(--shadow);
+    padding:1.9rem 1.9rem 1.6rem;
+    margin-bottom:1.6rem;
+    scroll-margin-top:1.5rem;
+  }
+  .phase-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:1rem;
+    margin-bottom:0.35rem;
+  }
+  .phase-num{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:0.78rem;
+    color:var(--accent);
+    letter-spacing:0.05em;
+  }
+  h2{
+    font-family:"Fraunces","Iowan Old Style",Georgia,serif;
+    font-weight:600;
+    font-size:1.4rem;
+    margin:0.2rem 0 0.5rem;
+    text-wrap:balance;
+  }
+  .why{
+    color:var(--ink-soft);
+    font-size:0.95rem;
+    margin:0 0 1.1rem;
+    padding-left:0.9rem;
+    border-left:2px solid var(--line);
+  }
+
+  .status-pill{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:0.72rem;
+    letter-spacing:0.04em;
+    padding:0.25rem 0.6rem;
+    border-radius:999px;
+    background:var(--done-soft);
+    color:var(--done);
+    white-space:nowrap;
+    opacity:0;
+    transition:opacity 0.2s ease;
+  }
+  .status-pill.show{opacity:1}
+
+  ol.steps{
+    list-style:none;
+    margin:0;
+    padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:0.9rem;
+  }
+  .step{
+    display:grid;
+    grid-template-columns:1.4rem 1fr;
+    gap:0.7rem;
+  }
+  .step input[type="checkbox"]{
+    margin-top:0.22rem;
+    width:1.05rem;
+    height:1.05rem;
+    accent-color:var(--accent);
+    cursor:pointer;
+  }
+  .step label{cursor:pointer}
+  .step p{margin:0 0 0.45rem; color:var(--ink)}
+  .step p code, td code, p code{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    background:var(--paper);
+    border:1px solid var(--line);
+    padding:0.05rem 0.35rem;
+    border-radius:4px;
+    font-size:0.88em;
+  }
+  .step.checked p{color:var(--muted); text-decoration:line-through; text-decoration-color:var(--line);}
+
+  pre{
+    background:var(--code-bg);
+    color:var(--code-ink);
+    border:1px solid var(--code-line);
+    border-radius:10px;
+    padding:0.85rem 1rem;
+    overflow-x:auto;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:0.84rem;
+    line-height:1.6;
+    position:relative;
+    margin:0.3rem 0 0;
+  }
+  pre code{font-family:inherit; background:none; border:none; padding:0; white-space:pre;}
+  .code-wrap{position:relative}
+  .copy-btn{
+    position:absolute;
+    top:0.5rem;
+    right:0.5rem;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:0.68rem;
+    letter-spacing:0.03em;
+    text-transform:uppercase;
+    background:var(--paper-raised);
+    color:var(--ink-soft);
+    border:1px solid var(--code-line);
+    border-radius:6px;
+    padding:0.25rem 0.5rem;
+    cursor:pointer;
+  }
+  .copy-btn:hover{color:var(--ink)}
+  .copy-btn:focus-visible, a:focus-visible, .step input:focus-visible{
+    outline:2px solid var(--accent);
+    outline-offset:2px;
+  }
+
+  .callout{
+    background:var(--warn-soft);
+    border:1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
+    color:var(--ink);
+    border-radius:10px;
+    padding:0.8rem 1rem;
+    font-size:0.92rem;
+    margin-top:0.9rem;
+    display:flex;
+    gap:0.6rem;
+  }
+  .callout b{color:var(--warn)}
+
+  .mark{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:0.05rem 0.4rem;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:0.86em;
+  }
+
+  footer.note{
+    grid-column:1 / -1;
+    color:var(--muted);
+    font-size:0.85rem;
+    border-top:1px solid var(--line);
+    padding-top:1.2rem;
+    margin-top:0.5rem;
+  }
+
+  ::selection{background:var(--accent); color:var(--accent-ink)}
+</style>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<div class="shell">
+  <header class="hero">
+    <p class="eyebrow">Tavola — infrastruttura</p>
+    <h1>Rendere Tavola indipendente da un solo PC</h1>
+    <p class="dek">Guida passo passo per spostare il server di Tavola su una VM gratuita di Google Cloud, raggiungibile in HTTPS tramite un tunnel gratuito — senza comprare un dominio adesso. Quando il pilot funziona, si passa a un dominio vero senza rifare il lavoro sotto.</p>
+    <div class="hero-meta">
+      <span><strong>Costo atteso:</strong> 0€ (free tier Google Cloud + piano free ngrok)</span>
+      <span><strong>Richiede:</strong> account Google, carta solo per verifica</span>
+      <span><strong>Non richiede:</strong> nulla da installare sul tuo PC</span>
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Fasi">
+    <ol id="railList">
+      <li><a href="#fase-1" data-phase="1"><span class="num">01</span> Account Google Cloud</a></li>
+      <li><a href="#fase-2" data-phase="2"><span class="num">02</span> VM e2-micro</a></li>
+      <li><a href="#fase-3" data-phase="3"><span class="num">03</span> Node + repository</a></li>
+      <li><a href="#fase-4" data-phase="4"><span class="num">04</span> Tunnel HTTPS</a></li>
+      <li><a href="#fase-5" data-phase="5"><span class="num">05</span> Avvio permanente</a></li>
+      <li><a href="#fase-6" data-phase="6"><span class="num">06</span> Chiave OpenAI</a></li>
+      <li><a href="#fase-7" data-phase="7"><span class="num">07</span> Webhook Telegram</a></li>
+      <li><a href="#fase-8" data-phase="8"><span class="num">08</span> Verifica finale</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section class="phase" id="fase-1" data-phase="1">
+      <div class="phase-head">
+        <div>
+          <p class="phase-num">FASE 01</p>
+          <h2>Creare l'account e il progetto Google Cloud</h2>
+        </div>
+        <span class="status-pill">completata</span>
+      </div>
+      <p class="why">Serve un progetto Google Cloud vuoto: è il contenitore in cui vivrà la VM. La carta è richiesta solo come verifica anti-abuso di Google — finché resti dentro i limiti free tier descritti sotto, non viene addebitato nulla, e la inserisci tu direttamente sul sito di Google, mai qui in chat.</p>
+      <ol class="steps">
+        <li class="step">
+          <input type="checkbox" id="s1-1"><label for="s1-1"><p>Vai su <span class="mark">console.cloud.google.com</span> e accedi con l'account Google che vuoi usare come "casa" di Tavola nel tempo.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s1-2"><label for="s1-2"><p>Se richiesto, attiva la fatturazione inserendo una carta. Resta comunque nel piano gratuito descritto in fase 2.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s1-3"><label for="s1-3"><p>Crea un nuovo progetto, ad esempio con nome <span class="mark">tavola-prod</span>, e assicurati che sia selezionato in alto nella console.</p></label>
+        </li>
+      </ol>
+      <div class="callout"><b>Nota</b>&nbsp;— non condividere qui numero di carta, password o codici di verifica: quei passaggi li fai tu, direttamente sul sito di Google.</div>
+    </section>
+
+    <section class="phase" id="fase-2" data-phase="2">
+      <div class="phase-head">
+        <div>
+          <p class="phase-num">FASE 02</p>
+          <h2>Creare la VM e2-micro gratuita</h2>
+        </div>
+        <span class="status-pill">completata</span>
+      </div>
+      <p class="why">L'e2-micro è l'unica macchina virtuale sempre gratuita di Google Cloud, con un disco persistente vero: ciò che scrivi resta lì anche dopo un riavvio, a differenza di soluzioni "serverless" come Cloud Run.</p>
+      <ol class="steps">
+        <li class="step">
+          <input type="checkbox" id="s2-1"><label for="s2-1"><p>Nel menu della console vai su <span class="mark">Compute Engine → Istanze VM</span> (la prima volta Google impiega circa un minuto ad attivare l'API).</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s2-2"><label for="s2-2"><p>Crea una nuova istanza con nome <span class="mark">tavola-server</span>.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s2-3"><label for="s2-3"><p>Scegli una regione idonea al piano gratuito: <span class="mark">us-west1</span>, <span class="mark">us-central1</span> oppure <span class="mark">us-east1</span>. Nessuna regione europea rientra nel free tier — è l'unico compromesso, ma per una chat testuale la latenza resta comunque impercettibile.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s2-4"><label for="s2-4"><p>Tipo macchina: <span class="mark">e2-micro</span>. Disco di avvio: <span class="mark">Debian 12</span>, 30 GB standard persistente (dentro il limite gratuito).</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s2-5"><label for="s2-5"><p>Nella sezione firewall <b>non</b> spuntare "consenti traffico HTTP/HTTPS": il tunnel della fase 4 esce dalla VM verso l'esterno, quindi non dobbiamo aprire nessuna porta in entrata. Più semplice e più sicuro.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s2-6"><label for="s2-6"><p>Crea l'istanza e attendi che risulti "in esecuzione" (circa un minuto).</p></label>
+        </li>
+      </ol>
+    </section>
+
+    <section class="phase" id="fase-3" data-phase="3">
+      <div class="phase-head">
+        <div>
+          <p class="phase-num">FASE 03</p>
+          <h2>Installare Node e clonare il repository</h2>
+        </div>
+        <span class="status-pill">completata</span>
+      </div>
+      <p class="why">Tutto avviene in un terminale che si apre dentro il browser: non serve installare nulla sul tuo PC, né oggi né se domani lavori da un computer diverso.</p>
+      <ol class="steps">
+        <li class="step">
+          <input type="checkbox" id="s3-1"><label for="s3-1"><p>Nella lista istanze, clicca il pulsante <span class="mark">SSH</span> accanto a <span class="mark">tavola-server</span>. Si apre un terminale nel browser.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s3-2"><label for="s3-2"><p>Installa Node.js 22 e git:</p>
+            <div class="code-wrap"><pre><code>curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt-get install -y nodejs git</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s3-3"><label for="s3-3"><p>Clona il repository e installa (senza dipendenze esterne, per progetto):</p>
+            <div class="code-wrap"><pre><code>git clone https://github.com/danieleparavani/tavola.git
+cd tavola/outputs/tavola-chat-mvp
+npm install
+npm test</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s3-4"><label for="s3-4"><p><span class="mark">npm test</span> deve mostrare i 40 test verdi. Se qualcosa fallisce, fermati qui e torniamo a parlarne prima di proseguire.</p></label>
+        </li>
+      </ol>
+    </section>
+
+    <section class="phase" id="fase-4" data-phase="4">
+      <div class="phase-head">
+        <div>
+          <p class="phase-num">FASE 04</p>
+          <h2>Tunnel HTTPS gratuito, senza dominio</h2>
+        </div>
+        <span class="status-pill">completata</span>
+      </div>
+      <p class="why">Telegram accetta solo webhook in HTTPS valido. Un dominio vero + certificato richiederebbe l'acquisto rimandato a dopo il pilot. Un tunnel ngrok con dominio statico gratuito risolve lo stesso problema oggi, senza costi e senza gestire certificati.</p>
+      <ol class="steps">
+        <li class="step">
+          <input type="checkbox" id="s4-1"><label for="s4-1"><p>Crea un account gratuito su <span class="mark">ngrok.com</span>.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s4-2"><label for="s4-2"><p>Nella dashboard ngrok, sezione <span class="mark">Domains</span>, clicca "Create domain": otterrai un indirizzo fisso tipo <span class="mark">tavola-xxxx.ngrok-free.app</span>, gratuito e stabile (non cambia ad ogni riavvio).</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s4-3"><label for="s4-3"><p>Installa ngrok sulla VM (stesso terminale SSH):</p>
+            <div class="code-wrap"><pre><code>curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
+  | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+echo "deb https://ngrok-agent.s3.amazonaws.com buster main" \
+  | sudo tee /etc/apt/sources.list.d/ngrok.list
+sudo apt update && sudo apt install ngrok</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s4-4"><label for="s4-4"><p>Copia il tuo Authtoken personale dalla dashboard ngrok e incollalo direttamente sulla VM (non a me):</p>
+            <div class="code-wrap"><pre><code>ngrok config add-authtoken IL_TUO_AUTHTOKEN</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+      </ol>
+      <div class="callout"><b>Nota</b>&nbsp;— authtoken e token del bot Telegram (fase 7) restano sulla VM: non serve mai incollarli qui in chat.</div>
+    </section>
+
+    <section class="phase" id="fase-5" data-phase="5">
+      <div class="phase-head">
+        <div>
+          <p class="phase-num">FASE 05</p>
+          <h2>Avvio permanente con systemd</h2>
+        </div>
+        <span class="status-pill">completata</span>
+      </div>
+      <p class="why">Senza questo passaggio, il server e il tunnel si fermano appena chiudi il terminale SSH. Due servizi systemd li tengono attivi 24 ore su 24 e li riavviano da soli se cadono o se la VM si riavvia.</p>
+      <ol class="steps">
+        <li class="step">
+          <input type="checkbox" id="s5-1"><label for="s5-1"><p>Crea il servizio del server Tavola:</p>
+            <div class="code-wrap"><pre><code>sudo tee /etc/systemd/system/tavola.service &gt;/dev/null &lt;&lt;'EOF'
+[Unit]
+Description=Tavola server
+After=network.target
+
+[Service]
+WorkingDirectory=/home/%i/tavola/outputs/tavola-chat-mvp
+ExecStart=/usr/bin/node server.mjs
+Restart=always
+User=%i
+
+[Install]
+WantedBy=multi-user.target
+EOF</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s5-2"><label for="s5-2"><p>Crea il servizio del tunnel (sostituisci il tuo dominio ngrok):</p>
+            <div class="code-wrap"><pre><code>sudo tee /etc/systemd/system/tavola-tunnel.service &gt;/dev/null &lt;&lt;'EOF'
+[Unit]
+Description=Tavola ngrok tunnel
+After=network.target tavola.service
+
+[Service]
+ExecStart=/usr/bin/ngrok http 4310 --domain=TUO-DOMINIO.ngrok-free.app
+Restart=always
+User=%i
+
+[Install]
+WantedBy=multi-user.target
+EOF</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s5-3"><label for="s5-3"><p>Attiva entrambi (sostituisci <span class="mark">%i</span> con il tuo nome utente sulla VM, visibile nel prompt del terminale):</p>
+            <div class="code-wrap"><pre><code>sudo systemctl enable --now tavola.service
+sudo systemctl enable --now tavola-tunnel.service
+sudo systemctl status tavola.service --no-pager</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+      </ol>
+    </section>
+
+    <section class="phase" id="fase-6" data-phase="6">
+      <div class="phase-head">
+        <div>
+          <p class="phase-num">FASE 06</p>
+          <h2>Chiave OpenAI sulla nuova macchina</h2>
+        </div>
+        <span class="status-pill">completata</span>
+      </div>
+      <p class="why">La chiave viene cifrata legandola alla macchina che la salva (D-018). Da oggi "la macchina" è questa VM sempre accesa, non più il tuo laptop: è proprio questo che risolve la portabilità della chiave, non serve altro codice.</p>
+      <ol class="steps">
+        <li class="step">
+          <input type="checkbox" id="s6-1"><label for="s6-1"><p>Apri <span class="mark">https://TUO-DOMINIO.ngrok-free.app/setup.html</span> nel browser.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s6-2"><label for="s6-2"><p>Incolla la tua chiave OpenAI direttamente lì (non qui in chat) e salva.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s6-3"><label for="s6-3"><p>Verifica su <span class="mark">/api/status</span> che <span class="mark">labConnected</span> risulti <span class="mark">true</span>.</p></label>
+        </li>
+      </ol>
+    </section>
+
+    <section class="phase" id="fase-7" data-phase="7">
+      <div class="phase-head">
+        <div>
+          <p class="phase-num">FASE 07</p>
+          <h2>Collegare il webhook Telegram</h2>
+        </div>
+        <span class="status-pill">completata</span>
+      </div>
+      <p class="why">Da qui in poi Telegram inoltra ogni messaggio direttamente al tuo indirizzo HTTPS, sempre attivo, indipendentemente dal PC che hai davanti.</p>
+      <ol class="steps">
+        <li class="step">
+          <input type="checkbox" id="s7-1"><label for="s7-1"><p>Su Telegram, apri una chat con <span class="mark">@BotFather</span> e crea un nuovo bot con <span class="mark">/newbot</span>. Copia il token che ti restituisce.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s7-2"><label for="s7-2"><p>Sulla VM, salva il token in un file d'ambiente fuori dal repository (non nel codice versionato):</p>
+            <div class="code-wrap"><pre><code>echo 'TELEGRAM_BOT_TOKEN=IL_TUO_TOKEN' | sudo tee -a /etc/environment</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s7-3"><label for="s7-3"><p>Registra il webhook (esegui questo comando direttamente sulla VM, il token non deve comparire qui in chat):</p>
+            <div class="code-wrap"><pre><code>curl "https://api.telegram.org/botIL_TUO_TOKEN/setWebhook?url=https://TUO-DOMINIO.ngrok-free.app/telegram/webhook"</code></pre><button class="copy-btn" type="button">Copia</button></div>
+          </label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s7-4"><label for="s7-4"><p>Riavvia il servizio perché legga la nuova variabile d'ambiente: <span class="mark">sudo systemctl restart tavola.service</span>.</p></label>
+        </li>
+      </ol>
+    </section>
+
+    <section class="phase" id="fase-8" data-phase="8">
+      <div class="phase-head">
+        <div>
+          <p class="phase-num">FASE 08</p>
+          <h2>Verifica finale</h2>
+        </div>
+        <span class="status-pill">completata</span>
+      </div>
+      <p class="why">L'ultimo controllo prima di considerare chiusa la migrazione: una conversazione reale, da un PC qualunque, verso un server che non dipende più da nessuno dei due.</p>
+      <ol class="steps">
+        <li class="step">
+          <input type="checkbox" id="s8-1"><label for="s8-1"><p>Scrivi al bot da Telegram e completa un capitolo intero, fino al D+1.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s8-2"><label for="s8-2"><p>Prova un ingrediente fuori dai casi editoriali (es. seppia, quinoa, cavolo nero) per verificare anche il laboratorio generativo dal vivo.</p></label>
+        </li>
+        <li class="step">
+          <input type="checkbox" id="s8-3"><label for="s8-3"><p>Quando tutto funziona, torna in chat con me: aggiorniamo insieme <span class="mark">DECISIONS.md</span> e <span class="mark">NEXT.md</span> con questa nuova base infrastrutturale.</p></label>
+        </li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer class="note">
+    Promemoria per ogni fase: nessuna password, token o numero di carta va incollato in questa conversazione — solo direttamente sui siti di Google, ngrok e Telegram. Le spunte qui sopra restano salvate in questo browser per quando riprendi la guida più tardi.
+  </footer>
+</div>
+
+<script>
+(function(){
+  var KEY = 'tavola-deploy-runbook-v1';
+  var state = {};
+  try{
+    state = JSON.parse(localStorage.getItem(KEY) || '{}');
+  }catch(e){ state = {}; }
+
+  function save(){
+    try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+  }
+
+  var boxes = document.querySelectorAll('.step input[type="checkbox"]');
+  boxes.forEach(function(box){
+    if(state[box.id]){ box.checked = true; }
+    reflectStep(box);
+    box.addEventListener('change', function(){
+      state[box.id] = box.checked;
+      save();
+      reflectStep(box);
+      updatePhase(box.closest('section.phase'));
+    });
+  });
+
+  function reflectStep(box){
+    var step = box.closest('.step');
+    if(step){ step.classList.toggle('checked', box.checked); }
+  }
+
+  document.querySelectorAll('section.phase').forEach(updatePhase);
+
+  function updatePhase(section){
+    if(!section) return;
+    var all = section.querySelectorAll('input[type="checkbox"]');
+    var done = section.querySelectorAll('input[type="checkbox"]:checked');
+    var pill = section.querySelector('.status-pill');
+    var complete = all.length > 0 && all.length === done.length;
+    if(pill){ pill.classList.toggle('show', complete); }
+    var navLink = document.querySelector('nav.rail a[data-phase="'+section.dataset.phase+'"]');
+    if(navLink){ navLink.setAttribute('data-done', complete ? 'true' : 'false'); }
+  }
+
+  document.querySelectorAll('.copy-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var code = btn.previousElementSibling;
+      var text = code ? code.textContent : '';
+      var done = function(){
+        var original = btn.textContent;
+        btn.textContent = 'Copiato';
+        setTimeout(function(){ btn.textContent = original; }, 1400);
+      };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(done).catch(function(){
+          fallbackCopy(text); done();
+        });
+      } else {
+        fallbackCopy(text); done();
+      }
+    });
+  });
+
+  function fallbackCopy(text){
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try{ document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta);
+  }
+})();
+</script>
