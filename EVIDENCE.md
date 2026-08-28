@@ -561,3 +561,32 @@ Il difetto è strutturale, non un caso limite: qualunque ramo di uno stato conve
 Introdotto lo stato intermedio `proposal_feedback`: il motivo del rifiuto viene raccolto ed effettivamente usato (incorporato nel contesto passato al laboratorio generativo) per rigenerare tre nuove direzioni, oppure per permettere un cambio di intenzione completo se l'utente preferisce ripartire da capo. Aggiunti due test automatici che riproducono esattamente il bug segnalato e verificano la correzione. Vedi D-037 in DECISIONS.md.
 
 **Regola generale suggerita per il futuro:** ogni nuovo bottone/ramo che chiede un'informazione a testo libero deve avere, nello stesso momento in cui viene scritto, uno stato dedicato pronto a riceverla — mai lasciare che la risposta ricada nello stato originario o nel fallback generico.
+
+
+## Failure osservato e corretto — bloccato sulla proposta, nessun modo di cambiare percorso (28 agosto 2026)
+
+Partecipante e condizione: progettista, test reale su Telegram (non simulazione).
+
+### Evidenza osservata
+
+Il progettista ha riportato: dopo aver ricevuto una proposta di ricetta sulla seppia, la conversazione risultava bloccata — nessun messaggio successivo permetteva di cambiare percorso o ripartire con un'altra idea.
+
+### Evidenza osservata (lettura del codice)
+
+Negli stati `proposal` (ricetta proposta, prima della scelta di modalità di guida) e `mode` (scelta guidami/leggi tutto/punti critici) non esisteva alcun ramo che riconoscesse un cambio di intenzione (`isIntentChoice`), a differenza di `collecting_people`, `collecting_time`, `collecting_context` e `proposal_feedback`, che lo avevano già tutti (quest'ultimo dal fix D-037). Un messaggio o un tocco su uno dei tre bottoni iniziali, inviato mentre l'utente si trovava in uno di questi due stati, non corrispondeva a nessun ramo previsto in quel blocco e cadeva nella risposta generica di fallback in fondo alla funzione.
+
+### Interpretazione
+
+Stessa classe di difetto già identificata con D-037 (uno stato senza un percorso di uscita esplicito lascia la conversazione apparentemente bloccata), ma in un punto diverso e con una causa diversa: qui non si trattava di un ramo presente ma rotto (come "Altra idea" prima del fix), bensì dell'assenza totale di un ramo per il cambio diretto di intenzione. La regola generale già annotata alla chiusura di D-037 — ogni nuovo stato deve prevedere un modo di uscirne — non era stata applicata retroattivamente agli stati già esistenti `proposal` e `mode`.
+
+### Decisione
+
+Aggiunto lo stesso controllo `isIntentChoice(n)` già in uso altrove come primo ramo di entrambi gli stati `proposal` e `mode`: un cambio di intenzione azzera il contesto (persone, tempo) e riporta la conversazione a `collecting_people`. Vedi DECISIONS.md, D-038.
+
+### Verifica successiva
+
+52/52 → 66/66 test automatici superati (`npm test`), inclusi 2 nuovi test che riproducono esattamente lo scenario per entrambi gli stati. Verificato inoltre **dal vivo** (non solo con mock) tramite l'API del simulatore sulla VM di produzione, riproducendo lo scenario esatto riportato dal progettista con una vera chiamata al laboratorio generativo: contesto raccolto con "seppia" fino a ottenere le tre direzioni gastronomiche, selezionato il livello "Semplice curato" per arrivare allo stato `proposal` (`Ti propongo Seppia scottata, patate novelle...`), poi inviato "Cerco un'idea" — la conversazione è tornata correttamente a `collecting_people` con la domanda "Per quante persone cuciniamo?", invece di restare bloccata. Applicato e committato sulla VM di produzione (`3249350` per il codice, `25a0e6f` per i test), servizio riavviato e verificato attivo.
+
+### Limite dichiarato di questa verifica
+
+La correzione copre solo gli stati `proposal` e `mode`, i due punti in cui il progettista ha effettivamente riscontrato il blocco. Lo stato `cooking` (guida passo-passo già avviata) resta senza questo stesso ramo: interrompere una cottura in corso con un cambio di intenzione immediato è una scelta di design distinta da valutare separatamente, non un'estensione automatica di questa correzione.
