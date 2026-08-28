@@ -565,3 +565,50 @@ test('publicUser conserva competenze, eventi e sessione senza perdita di informa
   assert.equal(snap.state, 'locating');
   assert.ok(Array.isArray(snap.events) && snap.events.length > 0);
 });
+
+// --- il percorso si puo' cambiare anche dalla proposta o dalla scelta di modalita' -----
+// (bug segnalato dal progettista durante un test reale su Telegram: bloccato sulla
+// proposta di seppia senza modo di ripartire, se non passando per "Altra idea")
+
+test('proposal: un cambio di intenzione diretto (senza passare da "Altra idea") riavvia il capitolo invece di bloccarsi', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('changepath1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    assert.equal(u.state, 'proposal');
+
+    const out = await handle(u, { text: '💡 Cerco un’idea' });
+    assert.equal(u.state, 'collecting_people');
+    assert.equal(u.context.intent, 'idea');
+    assert.match(out.text, /persone/i);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('mode: un cambio di intenzione diretto riavvia il capitolo invece di bloccarsi', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('changepath2', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' }); // proposal -> mode
+    assert.equal(u.state, 'mode');
+
+    const out = await handle(u, { text: '🛒 Sto facendo la spesa' });
+    assert.equal(u.state, 'collecting_people');
+    assert.equal(u.context.intent, 'shopping');
+    assert.match(out.text, /persone/i);
+  } finally {
+    restoreFetch();
+  }
+});
