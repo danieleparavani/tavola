@@ -243,6 +243,66 @@ test('tre direzioni gastronomiche: propone sempre semplice/tecnico/gourmet, poi 
   }
 });
 
+// --- "Altra idea" rigenera davvero, non blocca la conversazione (D-037) --------------
+
+test('Altra idea: chiede il motivo, poi rigenera tre nuove direzioni invece di ripetere sempre la stessa risposta', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('altraidea1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    assert.equal(u.state, 'proposal');
+
+    const askReason = await handle(u, { text: '🔄 Altra idea' });
+    assert.equal(u.state, 'proposal_feedback');
+    assert.match(askReason.text, /cosa non ti convince/i);
+
+    // prima del fix questo secondo messaggio cadeva nel fallback generico e restava lì per
+    // sempre: qualunque messaggio successivo produceva la stessa identica risposta.
+    queueResponse(threeIdeas());
+    const regenerated = await handle(u, { text: 'la tecnica è troppo complicata per stasera' });
+    assert.equal(u.state, 'difficulty_choice');
+    assert.match(regenerated.text, /Semplice curato/);
+    assert.match(u.context.raw, /non mi convince: la tecnica è troppo complicata/);
+
+    const feedbackEvent = [...u.events].reverse().find(e => e.type === 'proposal_feedback_captured');
+    assert.ok(feedbackEvent, 'atteso un evento proposal_feedback_captured');
+
+    // la conversazione non deve restare bloccata: un ulteriore messaggio normale continua il flusso
+    queueResponse(validLabDish());
+    const chosen = await handle(u, { text: 'semplice' });
+    assert.equal(u.state, 'proposal');
+    assert.ok(u.session);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('Altra idea: si può anche ripartire da capo scegliendo una nuova intenzione', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('altraidea2', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+
+    await handle(u, { text: '🔄 Altra idea' });
+    const out = await handle(u, { text: '🛒 Sto facendo la spesa' });
+    assert.equal(u.state, 'collecting_people');
+    assert.equal(u.context.intent, 'shopping');
+    assert.equal(u.context.people, null);
+  } finally {
+    restoreFetch();
+  }
+});
+
 // --- gate editoriale (rifiuto end-to-end) --------------------------------------------
 
 test('gate editoriale: una bozza debole viene respinta e Tavola si astiene invece di mostrarla', async () => {

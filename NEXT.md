@@ -1,6 +1,6 @@
 # Tavola — prossime attività
 
-Ultimo aggiornamento: 28 agosto 2026 (implementato `techniqueMapId` nello schema del laboratorio e nella dashboard — D-036, non ancora deployato sulla VM; versionata la guida `deploy-guide.html`; risolta una divergenza fra il repository di un container di sviluppo e `origin/main` — D-035; consenso Telegram, orario D+1 configurabile e consegna proattiva — D-034 — restano implementati, testati e deployati sulla VM)
+Ultimo aggiornamento: 28 agosto 2026 (corretto il primo bug trovato dal progettista in test reali su Telegram, "Altra idea" bloccava la conversazione — D-037, non ancora deployato sulla VM; implementato `techniqueMapId` nello schema del laboratorio e nella dashboard — D-036, non ancora deployato sulla VM; versionata la guida `deploy-guide.html`; risolta una divergenza fra il repository di un container di sviluppo e `origin/main` — D-035; consenso Telegram, orario D+1 configurabile e consegna proattiva — D-034 — restano implementati, testati e deployati sulla VM)
 
 ## Obiettivo corrente
 
@@ -54,6 +54,7 @@ Portare l'MVP conversazionale da simulatore locale a esperienza Telegram utilizz
 - [ ] Verificare fotografie e vocali (non ancora testati su Telegram reale; richiede il telefono del progettista).
 - [x] Aggiungere gestione delle preferenze e consenso — **implementato, testato e deployato il 27 agosto 2026** (D-034): messaggio di consenso unico ("Ho capito, iniziamo") prima del primo capitolo per i nuovi utenti Telegram; gli utenti già esistenti prima di questa modifica vengono grandfathered automaticamente. 60/60 test superati (locale e VM), servizio riavviato e verificato attivo sulla VM. Manca ancora una verifica dal vivo su Telegram reale.
 - [x] Programmare il D+1 in una fascia scelta dall'utente — **implementato, testato e deployato il 27 agosto 2026** (D-034): orario libero configurabile per utente (default 08:30, cambiabile con "⏰ Cambia orario D+1"), consegna proattiva lato server (scheduler ogni 60 secondi) invece di aspettare che l'utente riscriva. 60/60 test superati (locale e VM), servizio riavviato e verificato attivo sulla VM. Non ancora osservato dal vivo su Telegram reale.
+- [x] Primo bug trovato durante i test reali del progettista su Telegram (28 agosto 2026): "Altra idea" chiedeva il motivo del rifiuto ma restava bloccato nello stesso stato, facendo cadere ogni messaggio successivo sulla stessa risposta generica di fallback. Diagnosticato e corretto lo stesso giorno (D-037): nuovo stato `proposal_feedback` che raccoglie davvero il motivo e rigenera tre nuove direzioni, oppure permette un cambio di intenzione completo. 64/64 test superati, inclusi due test che riproducono il bug segnalato. Deploy sulla VM e riprova dal vivo ancora da fare al momento di questa voce.
 
 ## Fase 2 — micro-pilot con 2–3 tester
 

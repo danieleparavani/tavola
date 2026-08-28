@@ -543,3 +543,21 @@ Il fallimento dei quattro test di integrazione dopo l'aggiunta della lettura sin
 Non assegnare un `techniqueMapId` ai tre piatti editoriali storici (alici, triglia in due varianti) in questa modifica: sono fixture non raggiungibili dal flusso conversazionale attuale (D-014) e nessuna delle 54 voci corrisponde in modo netto ai loro principi dominanti senza una forzatura interpretativa arbitraria. Il codice tollera esplicitamente la loro assenza di `techniqueMapId`.
 
 Vedi D-036 in DECISIONS.md per la decisione formale e i dettagli implementativi.
+
+## Failure osservato — "Altra idea" blocca la conversazione (primo bug da test reale)
+
+### Evidenza osservata
+
+Il progettista ha riportato, durante il suo primo vero test su Telegram (non simulazione): "sto facendo test reali. il primo problema è che se voglio cambiare ricetta e ripartire non ci riesco continua a darmi sempre la stessa risposta". È il primo bug segnalato da un uso reale del prodotto, non trovato dal progettista mentre scriveva il codice né da un test automatico.
+
+Rileggendo `core/tavola.mjs`, il ramo che gestisce "🔄 Altra idea" nello stato `proposal` chiedeva il motivo del rifiuto ma non impostava mai un nuovo `user.state`: restava `proposal`. Il messaggio successivo dell'utente (il motivo stesso, es. "la tecnica è troppo complicata") rientrava quindi nello stesso blocco `if(user.state==='proposal')`; nessuno dei rami esistenti (`fonti`, `lista`, `piace`/`ci sono`, `altra`) corrispondeva, il blocco terminava senza `return`, e l'esecuzione cadeva in successione attraverso tutti i controlli di stato seguenti (nessuno dei quali corrispondeva, dato che lo stato era sempre `proposal`) fino al messaggio di fallback generico in fondo alla funzione — identico per ogni messaggio successivo, esattamente il sintomo descritto. Una ricerca con grep sui test esistenti prima della correzione ha confermato che questo percorso ("Altra idea" seguito da un motivo) non era mai stato esercitato da nessun test automatico.
+
+### Interpretazione
+
+Il difetto è strutturale, non un caso limite: qualunque ramo di uno stato conversazionale che chiede un'informazione successiva ma non predispone uno stato dedicato per riceverla lascia la conversazione priva di un percorso, e il fallback generico finale maschera il problema facendolo sembrare un errore di comprensione del testo piuttosto che un buco nella macchina a stati. Il fatto che sia stato trovato solo al primo uso reale (non nella scrittura del codice, non nei 62 test automatici allora esistenti) conferma che questa classe di difetti — stati raggiungibili ma "senza uscita" — non è coperta a meno di test che esercitino esplicitamente ogni bottone proposto in ogni stato, non solo i percorsi principali.
+
+### Decisione
+
+Introdotto lo stato intermedio `proposal_feedback`: il motivo del rifiuto viene raccolto ed effettivamente usato (incorporato nel contesto passato al laboratorio generativo) per rigenerare tre nuove direzioni, oppure per permettere un cambio di intenzione completo se l'utente preferisce ripartire da capo. Aggiunti due test automatici che riproducono esattamente il bug segnalato e verificano la correzione. Vedi D-037 in DECISIONS.md.
+
+**Regola generale suggerita per il futuro:** ogni nuovo bottone/ramo che chiede un'informazione a testo libero deve avere, nello stesso momento in cui viene scritto, uno stato dedicato pronto a riceverla — mai lasciare che la risposta ricada nello stato originario o nel fallback generico.

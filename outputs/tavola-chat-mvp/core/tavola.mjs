@@ -139,8 +139,18 @@ export async function handle(user,input,{source='simulator'}={}){
     const d=currentDish(user);
     if(n.includes('fonti')||n.includes('scelte')){const rows=(d.evidence||[]).map(e=>`**${e.status}** — ${e.claim}\n${e.sourceTitle}: ${e.sourceUrl}`).join('\n\n');event(user,'sources_opened',{dishId:d.id});return reply(rows||'Questa esperienza editoriale non ha ancora una bibliografia esposta.',buttons.proposal,{parseMode:'Markdown'})}
     if(n.includes('lista')){event(user,'shopping_list_requested');return reply(`Lista essenziale:\n${d.shopping.map(x=>'• '+x).join('\n')}\n\nQuando hai tutto, scrivi “ci sono”.`,[['🏠 Ci sono']]);}
-    if(n.includes('altra')){event(user,'proposal_rejected',{dishId:d.id});return reply('Posso cambiare direzione, ma prima dimmi cosa non ti convince: tecnica, tempo, ingredienti o gusto. Non genero un’alternativa casuale.')}
+    if(n.includes('altra')){user.state='proposal_feedback';event(user,'proposal_rejected',{dishId:d.id});return reply('Posso cambiare direzione, ma prima dimmi cosa non ti convince: tecnica, tempo, ingredienti o gusto. Non genero un’alternativa casuale.')}
     if(n.includes('piace')||n.includes('ci sono')){user.state='mode';event(user,'proposal_accepted',{dishId:d.id});return reply('Come vuoi cucinare stasera?',buttons.mode)}
+  }
+  if(user.state==='proposal_feedback'){
+    // D-037: "Altra idea" chiedeva il motivo del rifiuto ma non riportava mai lo stato fuori da
+    // 'proposal', quindi ogni messaggio successivo cadeva nel fallback generico finale e la
+    // conversazione sembrava bloccata sulla stessa risposta. Questo stato intermedio raccoglie
+    // il motivo, lo integra nel contesto e rigenera davvero tre nuove direzioni (D-019).
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    user.context.raw=`${user.context.raw} — non mi convince: ${text}`;user.context.difficultyIdeas=null;user.context.selectedIdea=null;user.context.difficulty=null;
+    event(user,'proposal_feedback_captured',{text});
+    return await proposeDifficultyMenu(user);
   }
   if(user.state==='mode'){
     if(user.session.mode==='full'){user.state='cooking';return cookingReply(user)}
