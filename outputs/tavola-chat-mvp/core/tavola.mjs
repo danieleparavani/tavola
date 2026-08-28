@@ -122,12 +122,14 @@ export async function handle(user,input,{source='simulator'}={}){
     return await proposeDifficultyMenu(user);
   }
   if(user.state==='difficulty_choice'){
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'difficulty_choice_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
     const index=n.includes('semplice')?0:n.includes('tecnico')?1:n.includes('gourmet')?2:-1;if(index<0)return reply('Scegli una delle tre direzioni: semplice curato, tecnico oppure gourmet.',difficultyButtons(user.context.difficultyIdeas));const idea=user.context.difficultyIdeas[index];user.context.difficulty=idea.level;user.context.selectedIdea=idea;event(user,'difficulty_selected',{level:idea.level,name:idea.name});return await proposeFromLab(user,`Livello scelto: ${idea.level}. Sviluppa: ${idea.name}`);
   }
   if(user.state==='lab_connection_required'){
     return reply('Per attivare il laboratorio generativo bisogna collegare al server una chiave OpenAI API. Non incollarla nella chat: va salvata come variabile d’ambiente OPENAI_API_KEY.');
   }
   if(user.state==='lab_clarification'){
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'lab_clarification_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
     user.context.labFollowup=text;user.context.people=parsePeople(text)||user.context.people;user.context.time=parseTime(text)||user.context.time;user.context.raw=[user.context.raw,text].filter(Boolean).join(' — ');event(user,'lab_clarification_answered',{text,people:user.context.people,time:user.context.time});return await proposeFromLab(user,text);
   }
   if(user.state==='clarify_triglia'){
@@ -161,6 +163,7 @@ export async function handle(user,input,{source='simulator'}={}){
     user.state='cooking';return cookingReply(user);
   }
   if(user.state==='cooking'){
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'cooking_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
     const d=currentDish(user),s=d.steps[user.session.step];
     if(n.includes('perché')||n.includes('perche')){event(user,'explanation_opened',{step:user.session.step});return reply(`**${s.term}**\n${s.why}`,buttons.step,{parseMode:'Markdown'})}
     if(n.includes('dubbio')){event(user,'help_requested',{step:user.session.step});return reply(s.help,[['✅ Risolto','🆘 Non è cambiato'],['🔬 Perché?']])}
@@ -230,7 +233,7 @@ function parseTime(text){const hours=text.match(/\b(\d+(?:[.,]\d+)?)\s*(ora|ore|
 function parsePeopleLoose(text){const raw=String(text||'').trim();if(/^5\s*\+$/.test(raw))return '5';if(/^[1-4]$/.test(raw))return raw;return parsePeople(text)}
 function parseTimeLoose(text){const raw=String(text||'');if(/pi[uù]\s*di\s*un.?ora/i.test(raw))return '90';return parseTime(text)}
 function extractIngredients(n){const found=[];if(n.includes('trigli'))found.push('triglia');if(n.includes('alici'))found.push('alici');if(n.includes('acciugh'))found.push('acciughe');return found}
-function isIntentChoice(n){return n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo')}
+function isIntentChoice(n){return n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo')||n.includes('nuova richiesta')||n.includes('ricominc')||n.includes('da capo')||n.includes('altra richiesta')||n.includes('resett')}
 function parseIntent(n){return n.includes('spesa')?'shopping':n.includes('cuciniamo')?'cook':'idea'}
 // Con i tasti rapidi (D-027) persone e tempo hanno domande proprie (vedi handle()); questa
 // prompt resta solo per l'ultima domanda, sempre a testo libero per non ridurre l'ampiezza
