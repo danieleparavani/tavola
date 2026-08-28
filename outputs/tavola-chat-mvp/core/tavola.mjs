@@ -64,7 +64,7 @@ const event=(u,type,payload={})=>u.events.push({type,payload,at:new Date().toISO
 const reply=(text,keyboard=null,extra={})=>({text,keyboard,...extra});
 const norm=s=>String(s||'').trim().toLowerCase();
 
-export function newUser(id,name='Tester'){return {id,name,state:'new',context:{people:null,time:null,ingredients:[],constraints:[],intent:null},session:null,pendingDplus:null,competencies:{},events:[],preferences:{dplusTime:'08:30'}}}
+export function newUser(id,name='Tester'){return {id,name,state:'new',context:{people:null,time:null,ingredients:[],constraints:[],intent:null},session:null,pendingDplus:null,competencies:{},techniques:{},events:[],preferences:{dplusTime:'08:30'}}}
 
 export async function handle(user,input,{source='simulator'}={}){
   const text=String(input.text||input||'').trim(),n=norm(text);
@@ -159,7 +159,12 @@ export async function handle(user,input,{source='simulator'}={}){
   }
   if(user.state==='closure'){user.session.answers.result=text;user.session.isSimulation=n.includes('simulazione')||n.includes('non l’ho cucinato')||n.includes('non l ho cucinato');user.state='reflection';event(user,'result_reported',{answer:text,isSimulation:user.session.isSimulation});return reply(user.session.isSimulation?'Questa prova sarà registrata come simulazione dell’interfaccia, non come esperienza culinaria. Quale punto della proposta cambieresti?':'Una sola cosa: cosa rifaresti uguale o cambieresti?')}
   if(user.state==='reflection'){
-    const d=currentDish(user);user.session.answers.reflection=text;user.session.completedAt=new Date().toISOString();const rapid=user.events.filter(e=>e.sessionId===user.session.id&&e.type==='step_completed').some(e=>e.payload.pace==='rapid_test');user.session.isSimulation=user.session.isSimulation||rapid;const c=user.competencies[d.competency]??={name:d.competencyName,status:'non_osservato',evidence:[]};if(!user.session.isSimulation){c.status='introdotto';c.evidence.push({type:'exposure_and_report',sessionId:user.session.id,at:user.session.completedAt})}else c.evidence.push({type:'interface_simulation',sessionId:user.session.id,at:user.session.completedAt});user.state='waiting_dplus';user.session.dplusDueAt=nextDueIso(user);user.pendingDplus={dueAt:user.session.dplusDueAt,dishId:d.id,text:d.dplus,curiosity:d.curiosity,sessionId:user.session.id};event(user,'session_completed',{dishId:d.id,reflection:text,isSimulation:user.session.isSimulation,dplusDueAt:user.session.dplusDueAt});const assessment=await assessReflection(d,text);event(user,'reflection_assessed',{assessment});
+    const d=currentDish(user);user.session.answers.reflection=text;user.session.completedAt=new Date().toISOString();const rapid=user.events.filter(e=>e.sessionId===user.session.id&&e.type==='step_completed').some(e=>e.payload.pace==='rapid_test');user.session.isSimulation=user.session.isSimulation||rapid;const c=user.competencies[d.competency]??={name:d.competencyName,status:'non_osservato',evidence:[]};if(!user.session.isSimulation){c.status='introdotto';c.evidence.push({type:'exposure_and_report',sessionId:user.session.id,at:user.session.completedAt})}else c.evidence.push({type:'interface_simulation',sessionId:user.session.id,at:user.session.completedAt});
+    // D-028: territorio fisso delle tecniche osservate, separato dalla competenza libera per
+    // piatto (sopra). Conta solo le sessioni non simulate (coerente con D-016); una sessione
+    // simulata resta comunque visibile in dashboard come "vista solo in simulazione".
+    if(d.techniqueMapId){const t=user.techniques[d.techniqueMapId]??={id:d.techniqueMapId,note:null,count:0,firstAt:null,lastAt:null,simulatedOnly:true};if(d.techniqueMapId==='altro'&&d.techniqueMapNote)t.note=d.techniqueMapNote;if(!user.session.isSimulation){t.count++;t.firstAt=t.firstAt||user.session.completedAt;t.lastAt=user.session.completedAt;t.simulatedOnly=false}}
+    user.state='waiting_dplus';user.session.dplusDueAt=nextDueIso(user);user.pendingDplus={dueAt:user.session.dplusDueAt,dishId:d.id,text:d.dplus,curiosity:d.curiosity,sessionId:user.session.id};event(user,'session_completed',{dishId:d.id,reflection:text,isSimulation:user.session.isSimulation,dplusDueAt:user.session.dplusDueAt});const assessment=await assessReflection(d,text);event(user,'reflection_assessed',{assessment});
     return reply(`${assessment}\n\n${user.session.isSimulation?'Sessione registrata come *simulazione*: non aggiorna la competenza.':'Ho registrato il principio come *introdotto*, non come acquisito.'}\n\nIl D+1 arriverà domattina. Questo capitolo è chiuso: quando vuoi iniziarne un altro, dimmi semplicemente dove sei.`,buttons.start,{parseMode:'Markdown'});
   }
   if(user.state==='waiting_dplus'&&n.includes('d+1'))return dplus(user);
@@ -247,7 +252,7 @@ export function isDplusDue(user){return Boolean(user?.pendingDplus)&&Date.now()>
 // `proactive` distingue nell'evento se la consegna è stata inviata da sola dallo scheduler della VM
 // oppure mostrata perché l'utente ha riscritto dopo la scadenza (comportamento invariato di default).
 export function dplus(user,{proactive=false}={}){const pending=user.pendingDplus;if(!pending)return reply('Non ci sono D+1 in attesa.');if(!isDplusDue(user))return reply(`Il D+1 sarà disponibile domattina, verso le ${user.preferences?.dplusTime||'08:30'}.`);event(user,'dplus_delivered',{dishId:pending.dishId,sourceSessionId:pending.sessionId,delivery:proactive?'proactive':'reactive'});user.pendingDplus=null;user.state='dplus';return reply(`☀️ **25 secondi**\n\n${pending.text}`,buttons.dplus,{parseMode:'Markdown'})}
-export function publicUser(u){return {id:u.id,name:u.name,state:u.state,context:u.context,session:u.session,pendingDplus:u.pendingDplus||null,competencies:u.competencies,events:u.events}}
+export function publicUser(u){return {id:u.id,name:u.name,state:u.state,context:u.context,session:u.session,pendingDplus:u.pendingDplus||null,competencies:u.competencies,techniques:u.techniques||{},events:u.events}}
 export function logDashboardOpened(u){event(u,'dashboard_opened',{})}
 // Esportate solo per i test automatici (funzioni pure, nessun cambiamento di comportamento).
 export {parsePeople,parseTime,parsePeopleLoose,parseTimeLoose,hasFoodRequest,isIntentChoice,parseIntent,extractIngredients,parseClockTime};

@@ -519,3 +519,27 @@ La divergenza fra i due repository locali (container e VM) conferma nella pratic
 Repository locale di questo container riallineato a `origin/main` (stato testato e verificato della VM) tramite `git reset --hard`, dopo aver messo in sicurezza la linea divergente su un branch di backup locale (`backup-container-locale-2026-08-28`, non pushato, conservato solo come archivio). I quattro documenti canonici della linea divergente — più completi e aggiornati, poiché la linea della VM non li aveva mai toccati — sono stati riportati sopra al codice riallineato della VM, unendo così il codice corretto (VM) alla documentazione più completa (container) senza perdere nessuno dei due.
 
 **Nuova regola di processo:** ad ogni sessione di lavoro che modifica il repository, verificare esplicitamente (`git log`, `git status`, confronto con `origin/main`) che il proprio ambiente locale sia effettivamente allineato al remoto prima di procedere, non solo che il remoto esista e sia raggiungibile.
+
+## Implementato techniqueMapId (D-028) — e trovato un conteggio sbagliato nella bozza della mappa
+
+### Evidenza osservata
+
+Su richiesta esplicita del progettista ("Implementare techniqueMapId (D-028)"), è stato letto `data/technique-map.draft.md` per estrarre l'elenco delle tecniche da usare come enum. Il documento dichiarava nella sua stessa riga di chiusura "Totale: 11 aree, 49 tecniche nominate". Un parser scritto per estrarre le voci (poi diventato parte di `core/lab.mjs`) ne ha contate 54; un conteggio indipendente con `grep -c '^- \`' data/technique-map.draft.md` ha confermato lo stesso numero, 54. Le aree 1-9 e 11 elencano davvero 5 voci ciascuna, l'area 10 ne elenca 4: 5×10+4=54, non 49.
+
+Implementato il campo nello schema del laboratorio (`core/lab.mjs`): `techniqueMapId` (enum sulle voci reali della mappa più `altro`) e `techniqueMapNote` (nota libera obbligatoria quando si usa `altro`), con relative verifiche difensive nel gate editoriale (`qualityIssues`). Aggiunto l'endpoint `GET /api/technique-map` e una nuova sezione della dashboard che mostra tutte le voci della mappa raggruppate per area, evidenziando quelle osservate da ciascun tester. Il conteggio nel documento è stato corretto a 54 e la verifica d'integrità in `core/lab.mjs` ora confronta dinamicamente il numero dichiarato nel documento con le voci trovate, invece di usare un numero fisso nel codice.
+
+Una traccia manuale completa (contesto → tre direzioni → proposta → cottura guidata → chiusura → riflessione), con il laboratorio simulato tramite mock di `fetch`, ha mostrato che `user.techniques` si popola con la voce dichiarata dal piatto proposto; poiché la traccia era scriptata (passaggi completati in millisecondi), la sessione è stata correttamente classificata come simulazione (stesso meccanismo di rilevamento già usato per le competenze, D-016) e la voce è stata registrata come `simulatedOnly`, non come osservazione reale.
+
+Aggiornata anche la copia isolata usata da `test/server.integration.test.mjs` (che avvia il server come processo separato in una directory temporanea) per includere `data/technique-map.draft.md`, ora necessario all'avvio del server: senza questo file quattro test di integrazione fallivano per timeout, perché il server andava in crash silenzioso all'importazione di `core/lab.mjs`.
+
+### Interpretazione
+
+Il conteggio "49" era quasi certamente un errore di conteggio manuale in fase di stesura della bozza (forse un conteggio fatto mentalmente per area, sbagliato in almeno un punto), non un segnale che alcune tecniche fossero state perse o duplicate nel parsing: i 54 id estratti sono tutti distinti e coerenti con le undici aree elencate nel documento stesso.
+
+Il fallimento dei quattro test di integrazione dopo l'aggiunta della lettura sincrona del file all'avvio del modulo è stato un promemoria diretto di una fragilità già nota in astratto ma non ancora incontrata in pratica su questo progetto: qualunque nuova dipendenza a runtime da un file del repository deve essere replicata esplicitamente in ogni ambiente isolato usato dai test, altrimenti il fallimento appare come un timeout generico invece che come l'assenza di un file, rendendo la diagnosi più lenta.
+
+### Decisione
+
+Non assegnare un `techniqueMapId` ai tre piatti editoriali storici (alici, triglia in due varianti) in questa modifica: sono fixture non raggiungibili dal flusso conversazionale attuale (D-014) e nessuna delle 54 voci corrisponde in modo netto ai loro principi dominanti senza una forzatura interpretativa arbitraria. Il codice tollera esplicitamente la loro assenza di `techniqueMapId`.
+
+Vedi D-036 in DECISIONS.md per la decisione formale e i dettagli implementativi.

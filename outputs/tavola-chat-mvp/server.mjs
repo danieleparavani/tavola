@@ -1,4 +1,4 @@
-import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';import {newUser,handle,dplus,publicUser,logDashboardOpened,isDplusDue} from './core/tavola.mjs';import {labAvailable} from './core/lab.mjs';
+import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';import {newUser,handle,dplus,publicUser,logDashboardOpened,isDplusDue} from './core/tavola.mjs';import {labAvailable,TECHNIQUE_MAP} from './core/lab.mjs';
 import {loadProtectedKey,saveProtectedKey} from './core/key-store.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));const pub=path.join(root,'public');const dataDir=path.join(root,'data');const dataFile=path.join(dataDir,'pilot.json');fs.mkdirSync(dataDir,{recursive:true});
 if(!process.env.OPENAI_API_KEY)process.env.OPENAI_API_KEY=loadProtectedKey();
@@ -11,6 +11,7 @@ const server=http.createServer(async(req,res)=>{try{const url=new URL(req.url,'h
   if(req.method==='POST'&&url.pathname==='/api/dplus'){const b=await body(req);const u=db.users[String(b.userId||'demo')];if(!u)return json(res,404,{error:'user_not_found'});const out=dplus(u);save();return json(res,200,{reply:out,user:publicUser(u)})}
   if(req.method==='GET'&&url.pathname==='/api/users')return json(res,200,{users:Object.values(db.users).filter(u=>!u.id.startsWith('qa-')).map(publicUser)});
   if(req.method==='GET'&&url.pathname==='/api/status')return json(res,200,{labConnected:labAvailable(),model:labAvailable()?(process.env.OPENAI_MODEL||'gpt-5-mini'):null});
+  if(req.method==='GET'&&url.pathname==='/api/technique-map')return json(res,200,{techniques:TECHNIQUE_MAP});
   if(req.method==='POST'&&url.pathname==='/api/setup-key'){
     const b=await body(req);const key=String(b.apiKey||'').trim();
     if(!key||key.length<20)return json(res,400,{ok:false,error:'Chiave non valida.'});

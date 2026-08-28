@@ -91,8 +91,11 @@ e capacità di collegare preparazioni diverse.
 
 ---
 
-Totale: 11 aree, 49 tecniche nominate. Numero volutamente non tondo: non è un
+Totale: 11 aree, 54 tecniche nominate. Numero volutamente non tondo: non è un
 traguardo da completare, è una mappa — si può ampliare in seguito senza fretta.
+(Nota: questa bozza indicava inizialmente "49 tecniche" per un conteggio manuale
+impreciso in fase di stesura; il conteggio reale delle voci elencate è 54, verificato
+in modo indipendente da `core/lab.mjs` all'avvio — cfr. D-036.)
 
 ## Domande aperte da chiudere insieme
 

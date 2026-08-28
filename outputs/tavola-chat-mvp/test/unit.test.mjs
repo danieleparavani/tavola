@@ -100,6 +100,8 @@ function baseDish(overrides = {}) {
   return {
     name: 'Filetti di pesce spada con zucchine trifolate',
     competency: 'sear_control',
+    techniqueMapId: 'cottura_differenziale_filetto',
+    techniqueMapNote: '',
     principle: { term: 'Cottura differenziale' },
     shopping: ['filetti di pesce spada', 'zucchine', 'olio extravergine', 'limone', 'sale'],
     dplus: 'Il pesce spada si presta a cotture rapide: un tempo i pescatori lo affettavano sottile per accorciare i tempi in barca.',
@@ -138,6 +140,24 @@ test('qualityIssues rifiuta etichette di competenza generiche (beginner/intermed
   const dish = baseDish({ competency: 'intermediate' });
   const issues = qualityIssues(dish, { people: '2', time: '40', raw: 'pesce spada' });
   assert.ok(issues.some(i => i.includes('competenza generica')));
+});
+
+// --- D-028: techniqueMapId ------------------------------------------------------------
+
+test('qualityIssues rifiuta un techniqueMapId assente o fuori dalla mappa delle tecniche', () => {
+  const dish = baseDish({ techniqueMapId: 'una_tecnica_inventata' });
+  const issues = qualityIssues(dish, { people: '2', time: '40', raw: 'pesce spada' });
+  assert.ok(issues.some(i => i.includes('techniqueMapId') && i.includes('mappa')));
+});
+
+test('qualityIssues accetta il valore di fuga "altro" solo se accompagnato da una nota libera', () => {
+  const senzaNota = baseDish({ techniqueMapId: 'altro', techniqueMapNote: '' });
+  const issuesSenzaNota = qualityIssues(senzaNota, { people: '2', time: '40', raw: 'pesce spada' });
+  assert.ok(issuesSenzaNota.some(i => i.includes('altro') && i.includes('nota')));
+
+  const conNota = baseDish({ techniqueMapId: 'altro', techniqueMapNote: 'affumicatura a caldo con trucioli di melo' });
+  const issuesConNota = qualityIssues(conNota, { people: '2', time: '40', raw: 'pesce spada' });
+  assert.ok(!issuesConNota.some(i => i.includes('techniqueMapId')), `non atteso un problema su techniqueMapId, trovato: ${issuesConNota.join(' | ')}`);
 });
 
 test('qualityIssues richiede almeno due fonti', () => {

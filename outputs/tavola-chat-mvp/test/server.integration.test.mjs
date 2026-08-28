@@ -21,6 +21,12 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavola-server-test-'));
 for (const item of ['core', 'public', 'server.mjs', 'package.json']) {
 fs.cpSync(path.join(projectRoot, item), path.join(dir, item), { recursive: true });
 }
+// D-028: core/lab.mjs legge data/technique-map.draft.md all'avvio (enum techniqueMapId), quindi
+// deve esistere anche in questa copia isolata, oppure il server crasha subito all'import e questi
+// test falliscono per timeout invece che per il vero comportamento testato. Si copia solo questo
+// file statico, mai data/pilot.json: l'isolamento serve proprio a non toccare i dati reali del pilot.
+fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
+fs.cpSync(path.join(projectRoot, 'data', 'technique-map.draft.md'), path.join(dir, 'data', 'technique-map.draft.md'));
 return dir;
 }
 

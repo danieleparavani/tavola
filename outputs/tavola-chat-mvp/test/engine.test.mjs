@@ -47,6 +47,8 @@ function validLabDish(id = 'lab_zucca_test') {
         name: 'Zucca in due cotture con salvia fritta',
         competency: 'concentrazione_sapore',
         competencyName: 'Concentrare il sapore con cotture in due tempi',
+        techniqueMapId: 'caramellizzazione',
+        techniqueMapNote: '',
         principle: { term: 'Cottura in due tempi', rule: 'Una prima cottura idrata e ammorbidisce, una seconda concentra e rosola.', prediction: 'Se salti la seconda cottura ad alta temperatura, la zucca resterà morbida ma priva di superficie caramellizzata.' },
         shopping: ['zucca', 'salvia', 'burro', 'olio extravergine', 'sale'],
         closure: 'La superficie era caramellizzata mantenendo il centro cremoso?',

@@ -1,6 +1,6 @@
 # Tavola — prossime attività
 
-Ultimo aggiornamento: 28 agosto 2026 (versionata la guida `deploy-guide.html`; risolta una divergenza fra il repository di un container di sviluppo e `origin/main` — D-035; consenso Telegram, orario D+1 configurabile e consegna proattiva — D-034 — restano implementati, testati e deployati sulla VM)
+Ultimo aggiornamento: 28 agosto 2026 (implementato `techniqueMapId` nello schema del laboratorio e nella dashboard — D-036, non ancora deployato sulla VM; versionata la guida `deploy-guide.html`; risolta una divergenza fra il repository di un container di sviluppo e `origin/main` — D-035; consenso Telegram, orario D+1 configurabile e consegna proattiva — D-034 — restano implementati, testati e deployati sulla VM)
 
 ## Obiettivo corrente
 
@@ -98,7 +98,7 @@ Portare l'MVP conversazionale da simulatore locale a esperienza Telegram utilizz
 - Dashboard estesa.
 - Architettura editoriale del libro.
 - Decidere se i tre piatti editoriali storici (alici, triglia intera, triglia a filetti) vadano riattivati come fallback esplicito quando il laboratorio non è collegato — oggi sono raggiungibili solo come fixture nei test del gate, non dal motore conversazionale (cfr. EVIDENCE.md, audit 19 agosto 2026).
-- Implementare nello schema del laboratorio generativo il campo `techniqueMapId` deciso in D-028 (enum sulle 49 tecniche di `data/technique-map.draft.md` più il valore di fuga `altro` con nota libera), e collegarlo alla dashboard come territorio fisso delle tecniche osservate. Non ancora iniziato.
+- ~~Implementare nello schema del laboratorio generativo il campo `techniqueMapId`...~~ **Fatto il 28 agosto 2026 (D-036).** Implementato l'enum sulle 54 tecniche reali di `data/technique-map.draft.md` (il documento dichiarava erroneamente "49"; corretto) più il valore di fuga `altro` con nota libera obbligatoria; collegato alla dashboard come territorio fisso delle tecniche osservate (nuova sezione, nuovo endpoint `GET /api/technique-map`). 62/62 test superati. Non ancora verificato dal vivo su Telegram né con una vera chiamata al modello. I tre piatti editoriali storici in `core/tavola.mjs` restano senza `techniqueMapId` (fixture non raggiungibili dal flusso attuale, D-014): assegnarne uno avrebbe richiesto una scelta interpretativa arbitraria estranea a questa attività.
 
 ## Non fare ora
 
