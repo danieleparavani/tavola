@@ -590,3 +590,34 @@ Aggiunto lo stesso controllo `isIntentChoice(n)` già in uso altrove come primo 
 ### Limite dichiarato di questa verifica
 
 La correzione copre solo gli stati `proposal` e `mode`, i due punti in cui il progettista ha effettivamente riscontrato il blocco. Lo stato `cooking` (guida passo-passo già avviata) resta senza questo stesso ramo: interrompere una cottura in corso con un cambio di intenzione immediato è una scelta di design distinta da valutare separatamente, non un'estensione automatica di questa correzione.
+
+
+## Failure osservato e corretto — "loop" sulla seppia dopo aver chiesto una nuova richiesta (28 agosto 2026)
+
+Partecipante e condizione: progettista, test reale su Telegram (non simulazione), poche ore dopo il deploy di D-038.
+
+### Evidenza osservata
+
+Il progettista ha riportato: "gli ho chiesto di cominciare una nuova richiesta e ancora mi risponde sulle seppie, è in loop."
+
+### Evidenza osservata (lettura del codice)
+
+Due problemi distinti, nessuno dei due coperto da D-038:
+1. `isIntentChoice(n)` riconosceva solo le tre frasi esatte dei bottoni ("cerco un...", "facendo la spesa", "ingredienti, cuciniamo"). Una frase scritta liberamente come "voglio cominciare una nuova richiesta" non veniva mai riconosciuta come cambio di intenzione, in nessuno stato — nemmeno in `proposal`/`mode`, già corretti da D-038 ma solo per le frasi esatte.
+2. Tre stati non avevano ancora alcun ramo `isIntentChoice`: `cooking`, `lab_clarification`, `difficulty_choice`. In `cooking` in particolare, qualunque testo non riconosciuto come "fatto/avanti/perché/dubbio" veniva inviato al generatore di risposte sul dubbio (`answerCookingDoubt`) insieme al piatto e al passaggio corrente — che restava quindi sempre ancorato alla seppia, producendo l'effetto "loop" descritto.
+
+### Interpretazione
+
+D-038 aveva corretto il sintomo osservato in quel momento (bloccato sulla proposta) ma non la causa generale: il controllo "riconosci un cambio di intenzione" era stato aggiunto stato per stato, con lo stesso set ristretto di frasi esatte dei bottoni. Il progettista, comunicando in linguaggio naturale invece di premere un bottone, ha usato una frase che nessuna versione del controllo riconosceva — e si trovava inoltre in uno stato (`cooking`, quasi certamente, dato che la ricetta era "in corso") che D-038 aveva esplicitamente lasciato fuori.
+
+### Decisione
+
+Vedi DECISIONS.md, D-039: `isIntentChoice` ampliato con frasi generiche di riavvio; stesso ramo di uscita aggiunto a `cooking`, `lab_clarification`, `difficulty_choice`.
+
+### Verifica successiva
+
+66/66 → 69/69 test automatici superati (`npm test`), inclusi 3 nuovi test — uno per ciascuno dei tre stati — che usano deliberatamente una frase generica ("nuova richiesta", "ricominciamo da capo", "voglio ricominciare") invece delle frasi esatte dei bottoni, per non ripetere lo stesso falso senso di sicurezza di D-038. Verificato inoltre **dal vivo, con una vera chiamata al laboratorio generativo** sulla VM di produzione: contesto raccolto con "pasta al pomodoro" (dopo che tre tentativi sulla seppia erano stati respinti dal gate editoriale — comportamento corretto e indipendente, non un problema), livello "semplice" accettato al primo tentativo, "ci sono" → `mode`, "guidami" → `cooking` (passaggio 1/7 mostrato correttamente), poi inviato testualmente "voglio cominciare una nuova richiesta" — la conversazione è tornata a `collecting_people` con "Per quante persone cuciniamo?", esattamente il comportamento atteso, invece di restare ancorata alla ricetta in corso. Applicato e committato sulla VM di produzione (`8d61c2d` per il codice, `398bcee` per i test), servizio riavviato e verificato attivo.
+
+### Limite dichiarato di questa verifica
+
+La verifica dal vivo è stata condotta tramite l'API del simulatore sulla VM (con una vera chiamata al laboratorio, non mockata), non tramite una nuova conversazione reale su Telegram con l'app del progettista. Resta inoltre volutamente fuori da questa correzione un controllo equivalente per gli stati `closure`, `reflection` e `awaiting_dplus_time`, dove il testo libero ha quasi sempre un significato legittimo diverso da un cambio di intenzione.
