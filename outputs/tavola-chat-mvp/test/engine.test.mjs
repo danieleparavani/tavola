@@ -612,3 +612,63 @@ test('mode: un cambio di intenzione diretto riavvia il capitolo invece di blocca
     restoreFetch();
   }
 });
+
+test('difficulty_choice: una frase generica di riavvio ("nuova richiesta") riparte, non solo i tre bottoni esatti', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('changepath3', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    assert.equal(u.state, 'difficulty_choice');
+
+    const out = await handle(u, { text: 'voglio fare una nuova richiesta' });
+    assert.equal(u.state, 'collecting_people');
+    assert.match(out.text, /persone/i);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('cooking: una frase generica di riavvio ("ricominciamo da capo") riavvia il capitolo invece di restare ancorata al piatto corrente', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('changepath4', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' });
+    await handle(u, { text: '👣 Guidami' });
+    assert.equal(u.state, 'cooking');
+
+    const out = await handle(u, { text: 'voglio ricominciare da capo' });
+    assert.equal(u.state, 'collecting_people');
+    assert.match(out.text, /persone/i);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('lab_clarification: un cambio di intenzione diretto riavvia il capitolo invece di restare in attesa del chiarimento', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('changepath5', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse({ output_text: JSON.stringify({ kind: 'clarification', question: 'Le seppie sono intere o già pulite?', options: ['Intere', 'Già pulite'], dish: null }) });
+    await handle(u, { text: 'gourmet' });
+    assert.equal(u.state, 'lab_clarification');
+
+    const out = await handle(u, { text: 'no aspetta, voglio ricominciare' });
+    assert.equal(u.state, 'collecting_people');
+    assert.match(out.text, /persone/i);
+  } finally {
+    restoreFetch();
+  }
+});
