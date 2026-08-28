@@ -136,6 +136,7 @@ export async function handle(user,input,{source='simulator'}={}){
     user.state='clarify_triglia';return reply('Quando le scegli o le compri, guarda se il pesce è intero oppure se trovi due filetti separati. Posso aspettare questa informazione prima di proporti una cottura.',[['🐟 Sono intere','🔪 Sono filetti']]);
   }
   if(user.state==='proposal'){
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'proposal_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
     const d=currentDish(user);
     if(n.includes('fonti')||n.includes('scelte')){const rows=(d.evidence||[]).map(e=>`**${e.status}** — ${e.claim}\n${e.sourceTitle}: ${e.sourceUrl}`).join('\n\n');event(user,'sources_opened',{dishId:d.id});return reply(rows||'Questa esperienza editoriale non ha ancora una bibliografia esposta.',buttons.proposal,{parseMode:'Markdown'})}
     if(n.includes('lista')){event(user,'shopping_list_requested');return reply(`Lista essenziale:\n${d.shopping.map(x=>'• '+x).join('\n')}\n\nQuando hai tutto, scrivi “ci sono”.`,[['🏠 Ci sono']]);}
@@ -153,6 +154,7 @@ export async function handle(user,input,{source='simulator'}={}){
     return await proposeDifficultyMenu(user);
   }
   if(user.state==='mode'){
+    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'mode_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
     if(user.session.mode==='full'){user.state='cooking';return cookingReply(user)}
     const d=currentDish(user);user.session.mode=n.includes('leggere')?'full':n.includes('critici')?'essential':'guided';event(user,'guidance_mode_selected',{mode:user.session.mode});
     if(user.session.mode==='full')return reply(d.steps.map((s,i)=>`**${i+1}. ${s.title}**\n${s.action}`).join('\n\n'),[['👣 Inizia la guida']],{parseMode:'Markdown'});
