@@ -621,3 +621,35 @@ Vedi DECISIONS.md, D-039: `isIntentChoice` ampliato con frasi generiche di riavv
 ### Limite dichiarato di questa verifica
 
 La verifica dal vivo è stata condotta tramite l'API del simulatore sulla VM (con una vera chiamata al laboratorio, non mockata), non tramite una nuova conversazione reale su Telegram con l'app del progettista. Resta inoltre volutamente fuori da questa correzione un controllo equivalente per gli stati `closure`, `reflection` e `awaiting_dplus_time`, dove il testo libero ha quasi sempre un significato legittimo diverso da un cambio di intenzione.
+
+
+## Failure osservato e corretto — bloccato sulla seppia per un ciclo di chiarimenti sulle fonti, non per uno stato senza uscita (29 agosto 2026)
+
+Partecipante e condizione: progettista, test reale su Telegram, dopo i fix D-037/D-038/D-039.
+
+### Evidenza osservata
+
+Il progettista ha riportato che la conversazione restava "ferma sulla stessa ricetta di seppie" e non procedeva, nonostante i tre fix precedenti sul cambio di percorso.
+
+### Evidenza osservata (riproduzione dal vivo con una vera chiamata al laboratorio)
+
+Contesto: 2 persone, 30 minuti, "seppia". Selezionato il livello "semplice":
+1. Il laboratorio ha restituito `kind=clarification` chiedendo all'utente **come gestire le fonti**: "Usa fonti di scuole/istituzioni culinarie riconosciute", "Usa un testo di riferimento editoriale tecnico", "Procedi senza inserire fonti esterne verificabili".
+2. Risposta data alla prima opzione ("Usa fonti di scuole/istituzioni culinarie riconosciute"): il laboratorio ha restituito un **secondo** `kind=clarification`, quasi identico al primo: "Confermi che posso citare esclusivamente risorse di scuole/istituzioni culinarie riconosciute (es. Culinary Institute of America, Le Cordon Bleu)?"
+3. Confermato di nuovo: il laboratorio ha finalmente generato una proposta — respinta dal gate editoriale (D-015) per "presenza di fonte editoriale o social non ammessa": lo stesso controllo (`bonappetit|giallozafferano|cookist|facebook|instagram|tiktok|pinterest`) già presente nel codice (cfr. `qualityIssues`), ha intercettato una fonte inserita dal modello nonostante la doppia rassicurazione sulla metodologia. Stato tornato a `difficulty_choice` con le stesse tre direzioni sulla seppia.
+
+### Interpretazione
+
+Non è un problema di stato senza uscita (i tre fix precedenti restano corretti e necessari, ma non erano la causa di questo specifico blocco). Il meccanismo `kind=clarification`, previsto dalle istruzioni del laboratorio per un'informazione decisiva sul piatto (es. forma di un ingrediente), viene usato dal modello anche per una domanda procedurale sulla metodologia delle fonti — una responsabilità che appartiene al sistema, non all'utente. Il fatto che la proposta finale sia comunque stata respinta per una fonte non ammessa, nonostante due giri di rassicurazione sulla fonte "giusta" da usare, mostra che il doppio chiarimento non stava nemmeno risolvendo il problema che si proponeva di risolvere: era un ciclo di conversazione a vuoto.
+
+### Decisione
+
+Vedi DECISIONS.md, D-040: aggiunto un vincolo esplicito alle istruzioni del laboratorio che vieta l'uso di `kind=clarification` per questioni di fonti, imponendo al laboratorio di risolvere la questione da solo (cercare, scegliere le fonti migliori disponibili, o omettere/dichiarare come `interpretation` una singola affermazione non supportata) restituendo comunque una proposta completa.
+
+### Verifica successiva
+
+69/69 test automatici superati (`npm test`), nessuna regressione (modifica solo testuale alle istruzioni, nessun test automatico può verificare in modo significativo il comportamento di un modello generativo). Verificato **dal vivo con una vera chiamata al laboratorio** sulla VM di produzione, riproducendo lo stesso identico scenario (seppia, 2 persone, 30 minuti, livello "semplice"): questa volta il laboratorio è passato direttamente a `kind=proposal` ("Ti propongo Seppia scottata con insalata tiepida di ceci e limone per 2"), senza alcun chiarimento sulle fonti, superando il gate editoriale al primo tentativo. Applicato e committato sulla VM di produzione (`63b18a9`), servizio riavviato e verificato attivo.
+
+### Limite dichiarato di questa verifica
+
+Una singola osservazione riuscita (contro il pattern di fallimento ripetuto osservato prima) è un'evidenza forte ma non una prova statistica che il comportamento sia eliminato in ogni caso: essendo un modello generativo, non è escluso che in altre occasioni — con altri ingredienti a fonti scarse, o per varianza del modello stesso — possa ripresentarsi un chiarimento simile. Non è stato possibile scrivere un test automatico che verifichi realmente questo comportamento (richiederebbe una chiamata reale al modello, non mockabile in modo significativo per questo tipo di deriva). Resta da confermare con un uso reale prolungato su Telegram, con ingredienti diversi, che il problema non si ripresenti.
