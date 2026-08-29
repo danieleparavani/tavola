@@ -86,7 +86,7 @@ export function qualityIssues(d,context){
   // già impedire valori fuori enum) e serve anche per i dish costruiti a mano nei test.
   if(!TECHNIQUE_MAP_ENUM.includes(d.techniqueMapId))issues.push('techniqueMapId mancante o non compreso nella mappa delle tecniche');
   if(d.techniqueMapId==='altro'&&!String(d.techniqueMapNote||'').trim())issues.push('techniqueMapId "altro" richiede una nota libera con la tecnica reale');
-  if(!/(impiatt|dispon.*piatt|serv.*piatt)/i.test(d.steps.at(-1)?.action||''))issues.push('manca un ultimo passaggio esplicito di impiattamento');
+  const lastStep=d.steps.at(-1)||{};const lastStepText=`${lastStep.title||''} ${lastStep.action||''} ${lastStep.observe||''}`;if(!/(impiatt|dispon|adagia|compon|guarnisc|servi|presenta|finitura)/i.test(lastStepText))issues.push('manca un ultimo passaggio esplicito di impiattamento');
   const evidence=d.evidence||[],bad=/bonappetit|giallozafferano|cookist|facebook|instagram|tiktok|pinterest/i;
   if(evidence.length<2)issues.push('fonti insufficienti');
   if(evidence.some(e=>bad.test(e.sourceUrl||'')))issues.push('presenza di fonte editoriale o social non ammessa');
