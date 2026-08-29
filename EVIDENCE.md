@@ -653,3 +653,42 @@ Vedi DECISIONS.md, D-040: aggiunto un vincolo esplicito alle istruzioni del labo
 ### Limite dichiarato di questa verifica
 
 Una singola osservazione riuscita (contro il pattern di fallimento ripetuto osservato prima) è un'evidenza forte ma non una prova statistica che il comportamento sia eliminato in ogni caso: essendo un modello generativo, non è escluso che in altre occasioni — con altri ingredienti a fonti scarse, o per varianza del modello stesso — possa ripresentarsi un chiarimento simile. Non è stato possibile scrivere un test automatico che verifichi realmente questo comportamento (richiederebbe una chiamata reale al modello, non mockabile in modo significativo per questo tipo di deriva). Resta da confermare con un uso reale prolungato su Telegram, con ingredienti diversi, che il problema non si ripresenti.
+
+
+## Failure osservato e corretto — bloccato sulla seppia per un controllo di impiattamento troppo stretto (29 agosto 2026)
+
+Partecipante e condizione: progettista, test reale su Telegram, dopo il fix D-040. Diagnosi condotta leggendo direttamente i dati reali del suo account (`data/pilot.json`, utente `tg-6344200262`) sulla VM di produzione — non una simulazione.
+
+### Evidenza osservata
+
+Il progettista ha riportato di aver riprovato e di essere rimasto bloccato allo stesso punto. Nessun dettaglio aggiuntivo fornito nella conversazione.
+
+### Evidenza osservata (lettura diretta dei dati reali dell'utente sulla VM)
+
+Cronologia eventi dell'utente reale, ultime ore: contesto raccolto per "Seppia", tre direzioni gastronomiche generate. Poi, in sequenza:
+- livello **semplice** selezionato → `editorial_gate_rejected`: `["manca un ultimo passaggio esplicito di impiattamento"]`
+- livello **tecnico** selezionato (dopo "Nuova ricetta") → `editorial_gate_rejected`: `["manca un ultimo passaggio esplicito di impiattamento","presenza di fonte editoriale o social non ammessa"]`
+- livello **gourmet** selezionato (dopo "Vorrei cucinare") → `editorial_gate_rejected`: `["manca un ultimo passaggio esplicito di impiattamento"]`
+- livello **gourmet** riselezionato (dopo "Riprova") → `editorial_gate_rejected`: `["manca un ultimo passaggio esplicito di impiattamento"]`
+
+Quattro tentativi su tre livelli diversi, generati da quattro chiamate indipendenti al laboratorio, **tutti respinti per lo stesso identico motivo**.
+
+### Evidenza osservata (lettura del codice)
+
+In `core/lab.mjs`, `qualityIssues()`: `if(!/(impiatt|dispon.*piatt|serv.*piatt)/i.test(d.steps.at(-1)?.action||''))issues.push('manca un ultimo passaggio esplicito di impiattamento');`. Il controllo verifica **solo** il campo `.action` dell'ultimo passaggio — non `.title`, non `.observe` — con un'espressione che richiede la presenza di "impiatt" da solo, oppure "dispon" seguito più avanti da "piatt", oppure "serv" seguito più avanti da "piatt". Altri controlli nello stesso file (es. la variabile `all` usata per il controllo generico ingredienti/spesa) combinano correttamente `title`+`action`+`why` di tutti i passaggi — questo controllo era l'eccezione, non la norma.
+
+### Interpretazione
+
+Un impiattamento descritto con verbi altrettanto validi ma diversi da quelli previsti — "componi il piatto", "guarnisci con...", "adagia su..." — o collocato nel campo `title` o `observe` dell'ultimo passaggio invece che in `action`, non viene riconosciuto dal controllo, che allora respinge una ricetta con un impiattamento in realtà corretto. Il fatto che quattro generazioni indipendenti (tre livelli diversi, con probabile variazione naturale nel testo prodotto dal modello) abbiano tutte fallito lo stesso identico controllo è più coerente con un difetto sistematico del controllo stesso che con una carenza ricorrente e casuale del modello — stessa classe di difetto già registrata una volta con il controllo sul risotto (regex `frusta.*ris` troppo permissiva in un altro modo, ma comunque un caso di campo/pattern non sufficientemente allineato con la realtà del testo generato).
+
+### Decisione
+
+Vedi DECISIONS.md, D-041: il controllo ora verifica il testo combinato di `title`+`action`+`observe` dell'ultimo passaggio, e riconosce un vocabolario più ampio (`impiatt`, `dispon`, `adagia`, `compon`, `guarnisc`, `servi`, `presenta`, `finitura`).
+
+### Verifica successiva
+
+69/69 test automatici superati (`npm test`), nessuna regressione. Verificato **dal vivo con una vera chiamata al laboratorio** sulla VM di produzione, con un account di test separato (non quello reale del progettista), riproducendo lo stesso contesto (seppia, 2 persone, 30 minuti) e lo stesso livello **gourmet** che aveva fallito due volte sul conto reale: questa volta la proposta ("Seppia scottata su crema vellutata di sedano rapa e salsa leggera al nero") ha superato il gate al primo tentativo. Applicato e committato sulla VM di produzione (`4b59f57`), servizio riavviato e verificato attivo. Account di test rimosso da `data/pilot.json` al termine della verifica.
+
+### Limite dichiarato di questa verifica
+
+Non è stato possibile recuperare il testo esatto delle quattro ricette respinte sul conto reale (non salvate: solo il motivo del rifiuto è registrato negli eventi), quindi non si può confermare con certezza quale verbo esatto il modello avesse usato in quei casi specifici per descrivere l'impiattamento — la correzione è ragionata sul meccanismo del controllo (campo troppo ristretto, vocabolario troppo stretto), non una riproduzione byte-per-byte del fallimento originale. Il conto reale del progettista non è stato toccato in questa sessione. Resta da confermare che il progettista stesso, riselezionando un livello sul proprio conto, non incontri più lo stesso rifiuto.
