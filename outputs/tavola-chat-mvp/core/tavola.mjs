@@ -95,8 +95,14 @@ export async function handle(user,input,{source='simulator'}={}){
   // riferimento (test, eventi, dashboard). In ciascuno dei tre stati un solo messaggio che
   // contenga già tutto (persone, tempo e ingrediente insieme) salta direttamente alle tre
   // direzioni gastronomiche tramite tryOneShot — la scorciatoia resta sempre disponibile.
+  if(user.state==='confirm_restart'){
+    const pending=user.context.pendingRestart||{};
+    if(/\bs[ìi]\b/.test(n)||n.includes('conferm')||n.includes('certo')||n.includes('ricomincia')){user.context.intent=pending.intent||null;user.context.people=null;user.context.time=null;user.context.pendingRestart=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'confirmed_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(/\bno\b/.test(n)||n.includes('continu')||n.includes('annull')||n.includes('resta')||n.includes('lascia')){user.state=pending.fromState||'collecting_context';user.context.pendingRestart=null;event(user,'restart_cancelled',{returnedTo:user.state});return reply('Va bene, continuiamo da dove eravamo.')}
+    return reply('Non ho capito: confermi di voler ricominciare da capo? Rispondi sì o no.',[['✅ Sì, ricomincia','↩️ No, continua']])
+  }
   if(user.state==='collecting_people'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;event(user,'intent_changed',{intent:user.context.intent});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'collecting_people')
     const shortcut=await tryOneShot(user,text,n);if(shortcut)return shortcut;
     const people=parsePeopleLoose(text);
     if(!people){event(user,'people_unrecognized',{text});return reply('Non ho capito il numero di persone: scegli un tasto oppure scrivimelo (es. “3 persone”).',buttons.peopleQuick)}
@@ -104,7 +110,7 @@ export async function handle(user,input,{source='simulator'}={}){
     return reply('Quanto tempo hai a disposizione?',buttons.timeQuick);
   }
   if(user.state==='collecting_time'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'collecting_time')
     const shortcut=await tryOneShot(user,text,n);if(shortcut)return shortcut;
     const time=parseTimeLoose(text);
     if(!time){event(user,'time_unrecognized',{text});return reply('Non ho capito il tempo disponibile: scegli un tasto oppure scrivimelo (es. “45 minuti”).',buttons.timeQuick)}
@@ -112,7 +118,7 @@ export async function handle(user,input,{source='simulator'}={}){
     return reply(ingredientPrompt(user.context.intent));
   }
   if(user.state==='collecting_context'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'collecting_context')
     if(!user.context.people)user.context.people=parsePeopleLoose(text);
     if(!user.context.time)user.context.time=parseTimeLoose(text);
     user.context.raw=text;user.context.ingredients=extractIngredients(n);
@@ -122,14 +128,14 @@ export async function handle(user,input,{source='simulator'}={}){
     return await proposeDifficultyMenu(user);
   }
   if(user.state==='difficulty_choice'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'difficulty_choice_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'difficulty_choice')
     const index=n.includes('semplice')?0:n.includes('tecnico')?1:n.includes('gourmet')?2:-1;if(index<0)return reply('Scegli una delle tre direzioni: semplice curato, tecnico oppure gourmet.',difficultyButtons(user.context.difficultyIdeas));const idea=user.context.difficultyIdeas[index];user.context.difficulty=idea.level;user.context.selectedIdea=idea;event(user,'difficulty_selected',{level:idea.level,name:idea.name});return await proposeFromLab(user,`Livello scelto: ${idea.level}. Sviluppa: ${idea.name}`);
   }
   if(user.state==='lab_connection_required'){
     return reply('Per attivare il laboratorio generativo bisogna collegare al server una chiave OpenAI API. Non incollarla nella chat: va salvata come variabile d’ambiente OPENAI_API_KEY.');
   }
   if(user.state==='lab_clarification'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'lab_clarification_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'lab_clarification')
     user.context.labFollowup=text;user.context.people=parsePeople(text)||user.context.people;user.context.time=parseTime(text)||user.context.time;user.context.raw=[user.context.raw,text].filter(Boolean).join(' — ');event(user,'lab_clarification_answered',{text,people:user.context.people,time:user.context.time});return await proposeFromLab(user,text);
   }
   if(user.state==='clarify_triglia'){
@@ -138,7 +144,7 @@ export async function handle(user,input,{source='simulator'}={}){
     user.state='clarify_triglia';return reply('Quando le scegli o le compri, guarda se il pesce è intero oppure se trovi due filetti separati. Posso aspettare questa informazione prima di proporti una cottura.',[['🐟 Sono intere','🔪 Sono filetti']]);
   }
   if(user.state==='proposal'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'proposal_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'proposal')
     const d=currentDish(user);
     if(n.includes('fonti')||n.includes('scelte')){const rows=(d.evidence||[]).map(e=>`**${e.status}** — ${e.claim}\n${e.sourceTitle}: ${e.sourceUrl}`).join('\n\n');event(user,'sources_opened',{dishId:d.id});return reply(rows||'Questa esperienza editoriale non ha ancora una bibliografia esposta.',buttons.proposal,{parseMode:'Markdown'})}
     if(n.includes('lista')){event(user,'shopping_list_requested');return reply(`Lista essenziale:\n${d.shopping.map(x=>'• '+x).join('\n')}\n\nQuando hai tutto, scrivi “ci sono”.`,[['🏠 Ci sono']]);}
@@ -150,20 +156,20 @@ export async function handle(user,input,{source='simulator'}={}){
     // 'proposal', quindi ogni messaggio successivo cadeva nel fallback generico finale e la
     // conversazione sembrava bloccata sulla stessa risposta. Questo stato intermedio raccoglie
     // il motivo, lo integra nel contesto e rigenera davvero tre nuove direzioni (D-019).
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'proposal_feedback')
     user.context.raw=`${user.context.raw} — non mi convince: ${text}`;user.context.difficultyIdeas=null;user.context.selectedIdea=null;user.context.difficulty=null;
     event(user,'proposal_feedback_captured',{text});
     return await proposeDifficultyMenu(user);
   }
   if(user.state==='mode'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'mode_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'mode')
     if(user.session.mode==='full'){user.state='cooking';return cookingReply(user)}
     const d=currentDish(user);user.session.mode=n.includes('leggere')?'full':n.includes('critici')?'essential':'guided';event(user,'guidance_mode_selected',{mode:user.session.mode});
     if(user.session.mode==='full')return reply(d.steps.map((s,i)=>`**${i+1}. ${s.title}**\n${s.action}`).join('\n\n'),[['👣 Inizia la guida']],{parseMode:'Markdown'});
     user.state='cooking';return cookingReply(user);
   }
   if(user.state==='cooking'){
-    if(isIntentChoice(n)){user.context.intent=parseIntent(n);user.context.people=null;user.context.time=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'cooking_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(isIntentChoice(n))return askRestartConfirmation(user,n,'cooking')
     const d=currentDish(user),s=d.steps[user.session.step];
     if(n.includes('perché')||n.includes('perche')){event(user,'explanation_opened',{step:user.session.step});return reply(`**${s.term}**\n${s.why}`,buttons.step,{parseMode:'Markdown'})}
     if(n.includes('dubbio')){event(user,'help_requested',{step:user.session.step});return reply(s.help,[['✅ Risolto','🆘 Non è cambiato'],['🔬 Perché?']])}
@@ -234,6 +240,7 @@ function parsePeopleLoose(text){const raw=String(text||'').trim();if(/^5\s*\+$/.
 function parseTimeLoose(text){const raw=String(text||'');if(/pi[uù]\s*di\s*un.?ora/i.test(raw))return '90';return parseTime(text)}
 function extractIngredients(n){const found=[];if(n.includes('trigli'))found.push('triglia');if(n.includes('alici'))found.push('alici');if(n.includes('acciugh'))found.push('acciughe');return found}
 function isIntentChoice(n){if(n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo'))return true;if(n.includes('nuova richiesta')||n.includes('altra richiesta')||n.includes('resett'))return true;if(n.includes('ricominc')||n.includes('da capo')||n.includes('ripart'))return true;if((n.includes('cambi')||n.includes('nuov')||n.includes('altra')||n.includes('altro'))&&(n.includes('ricetta')||n.includes('piatto')))return true;return false}
+function askRestartConfirmation(user,n,fromState){user.context.pendingRestart={intent:parseIntent(n),fromState};user.state='confirm_restart';event(user,'restart_confirmation_asked',{fromState});return reply('Sei sicuro di voler ricominciare? Il piatto in corso andrà perso.',[['✅ Sì, ricomincia','↩️ No, continua']])}
 function parseIntent(n){return n.includes('spesa')?'shopping':n.includes('cuciniamo')?'cook':'idea'}
 // Con i tasti rapidi (D-027) persone e tempo hanno domande proprie (vedi handle()); questa
 // prompt resta solo per l'ultima domanda, sempre a testo libero per non ridurre l'ampiezza
