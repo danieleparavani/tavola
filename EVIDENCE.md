@@ -728,3 +728,36 @@ Vedi DECISIONS.md, D-042: aggiunto il riconoscimento di "ripart..." (ripartiamo/
 ### Limite dichiarato di questa verifica
 
 La terza frase del progettista, "Ripartiamo da 0", è coperta dal nuovo stem "ripart..." e verificata positivamente nel test in isolamento della funzione, ma non è stata riprodotta end-to-end con una chiamata reale al laboratorio nello stesso contesto esatto (guida sui tortellini) in cui l'aveva scritta lui. Resta da confermare con un uso reale su Telegram che tutte e tre le formulazioni continuino a funzionare nel suo contesto specifico.
+
+
+## Miglioramento richiesto — una conferma prima di ricominciare, come rete di sicurezza (1 settembre 2026)
+
+Partecipante e condizione: progettista, richiesta esplicita dopo la serie di correzioni D-037 → D-042 sul riconoscimento del cambio di percorso.
+
+### Evidenza (richiesta del progettista)
+
+"quando si presenta una frase che sembra voler chiudere fai fare la domanda di sicurezza 'sei sicuro di voler ricominciare?' quindi diamo sicurezza con la frase di controllo ma chiudiamo quando l'utente lo chiede."
+
+### Interpretazione
+
+Sei correzioni consecutive (D-037 → D-042) hanno ampliato il vocabolario riconosciuto da `isIntentChoice` per coprire sempre più formulazioni naturali di "voglio ricominciare". Ogni ampliamento riduce i falsi negativi (frasi non riconosciute, che lasciano l'utente bloccato) ma aumenta necessariamente il rischio di falsi positivi (frasi che contengono per caso una parola chiave senza l'intenzione di ricominciare, con perdita involontaria della ricetta in corso). Una domanda di conferma esplicita risolve questa tensione strutturalmente: permette di riconoscere in modo ampio e permissivo, perché nessun riavvio avviene senza una conferma diretta dell'utente.
+
+### Decisione
+
+Vedi DECISIONS.md, D-043: nuova funzione `askRestartConfirmation` e nuovo stato `confirm_restart`, applicati a tutti i 9 punti dove `isIntentChoice` scatenava un riavvio immediato. Risposta affermativa → riavvio reale; risposta negativa → ritorno esatto allo stato di provenienza, senza perdite; risposta ambigua → la domanda viene ripetuta. Esclusi deliberatamente `locating` e il riavvio "dormiente" da `waiting_dplus`/`dplus`, dove non c'è nulla in corso da proteggere.
+
+### Bug trovato dai test automatici prima del deploy
+
+La prima versione del controllo usava `/\bsi\b/` per riconoscere "sì". In JavaScript il confine di parola `\b` si basa sulla classe `\w`, che comprende solo caratteri ASCII: la lettera accentata "ì" non ne fa parte, quindi il confine subito dopo "sì" non veniva mai rilevato e la regex non scattava mai per la forma più comune della risposta affermativa in italiano. Il primo giro di test (65/71) ha individuato l'errore prima che raggiungesse la produzione. Corretto normalizzando gli accenti (`normalize('NFD')` + rimozione dei diacritici) prima del confronto.
+
+### Verifica
+
+71/71 test automatici superati dopo la correzione (63 preesistenti, 6 aggiornati al flusso a due passaggi, 2 nuovi per rifiuto e risposta ambigua). Verificato **dal vivo con vere chiamate al laboratorio** sulla VM di produzione, con due account di test separati:
+- **Conferma**: pasta al pomodoro proposta → "nuova ricetta" → `confirm_restart` con la domanda esatta ("Sei sicuro di voler ricominciare? Il piatto in corso andrà perso.") → "sì" (con l'accento) → `collecting_people`, "Per quante persone cuciniamo?", intent correttamente impostato a "idea".
+- **Rifiuto**: riso al pesto proposto → "cambiamo ricetta" → `confirm_restart` → "no, continua" → tornato esattamente a `proposal` con lo stesso `dishId` di prima, `pendingRestart` azzerato, risposta "Va bene, continuiamo da dove eravamo."
+
+Applicato e committato sulla VM di produzione (`f9eabd6` per il fix sugli accenti), servizio riavviato e verificato attivo. Account di test rimossi al termine.
+
+### Limite dichiarato
+
+La terza casistica (risposta ambigua, che ripete la domanda) è verificata solo dal test automatico, non dal vivo. Resta da confermare con un uso reale su Telegram che il passaggio in più non sia percepito come un attrito eccessivo dal progettista, specialmente quando il riavvio era davvero l'intenzione originaria.
