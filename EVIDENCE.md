@@ -692,3 +692,39 @@ Vedi DECISIONS.md, D-041: il controllo ora verifica il testo combinato di `title
 ### Limite dichiarato di questa verifica
 
 Non è stato possibile recuperare il testo esatto delle quattro ricette respinte sul conto reale (non salvate: solo il motivo del rifiuto è registrato negli eventi), quindi non si può confermare con certezza quale verbo esatto il modello avesse usato in quei casi specifici per descrivere l'impiattamento — la correzione è ragionata sul meccanismo del controllo (campo troppo ristretto, vocabolario troppo stretto), non una riproduzione byte-per-byte del fallimento originale. Il conto reale del progettista non è stato toccato in questa sessione. Resta da confermare che il progettista stesso, riselezionando un livello sul proprio conto, non incontri più lo stesso rifiuto.
+
+
+## Failure osservato e corretto — "torna indietro sulla ricetta": nessuna delle frasi naturali di riavvio veniva riconosciuta (1 settembre 2026)
+
+Partecipante e condizione: progettista, test reale su Telegram, durante una guida di cottura sui tortellini. Diagnosi condotta leggendo direttamente gli eventi reali del suo account (`data/pilot.json`, utente `tg-6344200262`) sulla VM di produzione.
+
+### Evidenza osservata
+
+Il progettista ha riportato: "ho fatto diversi tentativi, torna indietro sulla ricetta ma non ricomincia da capo."
+
+### Evidenza osservata (lettura diretta della cronologia reale)
+
+Durante la guida sui tortellini (modalità "leggi tutto", passaggio 1), tre messaggi consecutivi:
+1. **"Nuova ricetta"** — inviato mentre lo stato era `mode` con `session.mode==='full'` già impostato. Non riconosciuto da `isIntentChoice`; il ramo di default di quello stato (`if(session.mode==='full'){state='cooking';return cookingReply(user)}`) ha semplicemente fatto ripartire la guida dal **passaggio 0 dello stesso piatto** (`step_shown {"step":0}`).
+2. **"Cambiamo ricetta"** — inviato in stato `cooking`. Non riconosciuto; trattato come una domanda sulla cottura in corso (`doubt_asked`/`doubt_answered`, piatto sempre tortellini).
+3. **"Ripartiamo da 0"** — stesso esito: `doubt_asked`/`doubt_answered`.
+
+### Evidenza osservata (lettura del codice)
+
+`isIntentChoice(n)` riconosceva: `'cerco un'`, `'facendo la spesa'`, `'ingredienti, cuciniamo'`, `'ingredienti cuciniamo'`, `'nuova richiesta'`, `'ricominc'`, `'da capo'`, `'altra richiesta'`, `'resett'`. Nessuna di queste stringhe compare in "nuova **ricetta**", "cambiamo **ricetta**" o "ripartiamo da 0". La parola "richiesta" era presente due volte nella lista; la parola "ricetta" — la scelta lessicale più naturale in un'app di cucina — non era mai stata considerata nei tre fix precedenti (D-037/D-038/D-039), che avevano ampliato il vocabolario restando sempre nella famiglia di "richiesta".
+
+### Interpretazione
+
+I fix precedenti avevano risolto correttamente ogni causa individuata fino a quel momento (stati senza uscita, poi vocabolario limitato alle frasi esatte dei bottoni), ma continuavano a estendere lo stesso lemma di partenza invece di verificare direttamente, con dati reali, quali parole le persone usano davvero. Il progettista ha usato "ricetta" tre volte su tre tentativi — un segnale forte che quella, non "richiesta", è la parola realmente naturale per questo concetto in italiano colloquiale.
+
+### Decisione
+
+Vedi DECISIONS.md, D-042: aggiunto il riconoscimento di "ripart..." (ripartiamo/ripartire) alla stessa famiglia di "ricominc.../da capo"; aggiunto il riconoscimento di una radice di cambiamento ("cambi-/nuov-/altra-/altro-") **combinata** con "ricetta" o "piatto" nello stesso messaggio, per evitare falsi positivi su frasi come "la ricetta prevede il basilico" (che contengono "ricetta" senza alcuna intenzione di cambiare).
+
+### Verifica successiva
+
+69/69 test automatici superati (`npm test`), nessuna regressione. Verificate in isolamento le tre frasi esatte del progettista (tutte `true`) e alcune frasi di controllo che contengono "ricetta"/"piatto" senza intenzione di cambiare (tutte `false`, nessun falso positivo). Verificato inoltre **dal vivo con vere chiamate al laboratorio** sulla VM di produzione, con un account di test separato: contesto con "risotto", proposta generata, poi inviato "Cambiamo ricetta" dallo stato `proposal` — la conversazione è tornata correttamente a `collecting_people` con "Per quante persone cuciniamo?"; separatamente, dallo stesso contesto, anche "Nuova ricetta" ha prodotto lo stesso risultato corretto. Applicato e committato sulla VM di produzione (`401a93a`), servizio riavviato e verificato attivo. Account di test rimosso da `data/pilot.json` al termine.
+
+### Limite dichiarato di questa verifica
+
+La terza frase del progettista, "Ripartiamo da 0", è coperta dal nuovo stem "ripart..." e verificata positivamente nel test in isolamento della funzione, ma non è stata riprodotta end-to-end con una chiamata reale al laboratorio nello stesso contesto esatto (guida sui tortellini) in cui l'aveva scritta lui. Resta da confermare con un uso reale su Telegram che tutte e tre le formulazioni continuino a funzionare nel suo contesto specifico.
