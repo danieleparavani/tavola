@@ -282,7 +282,7 @@ test('Altra idea: chiede il motivo, poi rigenera tre nuove direzioni invece di r
   }
 });
 
-test('Altra idea: si può anche ripartire da capo scegliendo una nuova intenzione', async () => {
+test('Altra idea: si può anche ripartire da capo scegliendo una nuova intenzione (dopo conferma, D-043)', async () => {
   installFetchMock();
   try {
     const u = newUser('altraidea2', 'Tester');
@@ -294,7 +294,11 @@ test('Altra idea: si può anche ripartire da capo scegliendo una nuova intenzion
     await handle(u, { text: 'gourmet' });
 
     await handle(u, { text: '🔄 Altra idea' });
-    const out = await handle(u, { text: '🛒 Sto facendo la spesa' });
+    const asked = await handle(u, { text: '🛒 Sto facendo la spesa' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(asked.text, /sicuro/i);
+
+    const out = await handle(u, { text: 'sì' });
     assert.equal(u.state, 'collecting_people');
     assert.equal(u.context.intent, 'shopping');
     assert.equal(u.context.people, null);
@@ -570,7 +574,7 @@ test('publicUser conserva competenze, eventi e sessione senza perdita di informa
 // (bug segnalato dal progettista durante un test reale su Telegram: bloccato sulla
 // proposta di seppia senza modo di ripartire, se non passando per "Altra idea")
 
-test('proposal: un cambio di intenzione diretto (senza passare da "Altra idea") riavvia il capitolo invece di bloccarsi', async () => {
+test('proposal: un cambio di intenzione diretto chiede conferma, poi riavvia il capitolo (D-043)', async () => {
   installFetchMock();
   try {
     const u = newUser('changepath1', 'Tester');
@@ -582,7 +586,11 @@ test('proposal: un cambio di intenzione diretto (senza passare da "Altra idea") 
     await handle(u, { text: 'gourmet' });
     assert.equal(u.state, 'proposal');
 
-    const out = await handle(u, { text: '💡 Cerco un’idea' });
+    const asked = await handle(u, { text: '💡 Cerco un’idea' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(asked.text, /sicuro/i);
+
+    const out = await handle(u, { text: 'sì' });
     assert.equal(u.state, 'collecting_people');
     assert.equal(u.context.intent, 'idea');
     assert.match(out.text, /persone/i);
@@ -591,7 +599,7 @@ test('proposal: un cambio di intenzione diretto (senza passare da "Altra idea") 
   }
 });
 
-test('mode: un cambio di intenzione diretto riavvia il capitolo invece di bloccarsi', async () => {
+test('mode: un cambio di intenzione diretto chiede conferma, poi riavvia il capitolo (D-043)', async () => {
   installFetchMock();
   try {
     const u = newUser('changepath2', 'Tester');
@@ -604,7 +612,11 @@ test('mode: un cambio di intenzione diretto riavvia il capitolo invece di blocca
     await handle(u, { text: 'ci sono' }); // proposal -> mode
     assert.equal(u.state, 'mode');
 
-    const out = await handle(u, { text: '🛒 Sto facendo la spesa' });
+    const asked = await handle(u, { text: '🛒 Sto facendo la spesa' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(asked.text, /sicuro/i);
+
+    const out = await handle(u, { text: 'sì' });
     assert.equal(u.state, 'collecting_people');
     assert.equal(u.context.intent, 'shopping');
     assert.match(out.text, /persone/i);
@@ -613,7 +625,7 @@ test('mode: un cambio di intenzione diretto riavvia il capitolo invece di blocca
   }
 });
 
-test('difficulty_choice: una frase generica di riavvio ("nuova richiesta") riparte, non solo i tre bottoni esatti', async () => {
+test('difficulty_choice: una frase generica di riavvio ("nuova richiesta") chiede conferma, poi riparte (D-043)', async () => {
   installFetchMock();
   try {
     const u = newUser('changepath3', 'Tester');
@@ -623,7 +635,10 @@ test('difficulty_choice: una frase generica di riavvio ("nuova richiesta") ripar
     await handle(u, { text: '2 persone, 45 minuti, seppia' });
     assert.equal(u.state, 'difficulty_choice');
 
-    const out = await handle(u, { text: 'voglio fare una nuova richiesta' });
+    const asked = await handle(u, { text: 'voglio fare una nuova richiesta' });
+    assert.equal(u.state, 'confirm_restart');
+
+    const out = await handle(u, { text: 'sì' });
     assert.equal(u.state, 'collecting_people');
     assert.match(out.text, /persone/i);
   } finally {
@@ -631,7 +646,7 @@ test('difficulty_choice: una frase generica di riavvio ("nuova richiesta") ripar
   }
 });
 
-test('cooking: una frase generica di riavvio ("ricominciamo da capo") riavvia il capitolo invece di restare ancorata al piatto corrente', async () => {
+test('cooking: una frase generica di riavvio ("ricominciamo da capo") chiede conferma, poi riavvia invece di restare ancorata al piatto corrente (D-043)', async () => {
   installFetchMock();
   try {
     const u = newUser('changepath4', 'Tester');
@@ -645,7 +660,10 @@ test('cooking: una frase generica di riavvio ("ricominciamo da capo") riavvia il
     await handle(u, { text: '👣 Guidami' });
     assert.equal(u.state, 'cooking');
 
-    const out = await handle(u, { text: 'voglio ricominciare da capo' });
+    const asked = await handle(u, { text: 'voglio ricominciare da capo' });
+    assert.equal(u.state, 'confirm_restart');
+
+    const out = await handle(u, { text: 'sì' });
     assert.equal(u.state, 'collecting_people');
     assert.match(out.text, /persone/i);
   } finally {
@@ -653,7 +671,7 @@ test('cooking: una frase generica di riavvio ("ricominciamo da capo") riavvia il
   }
 });
 
-test('lab_clarification: un cambio di intenzione diretto riavvia il capitolo invece di restare in attesa del chiarimento', async () => {
+test('lab_clarification: un cambio di intenzione diretto chiede conferma, poi riavvia invece di restare in attesa del chiarimento (D-043)', async () => {
   installFetchMock();
   try {
     const u = newUser('changepath5', 'Tester');
@@ -665,9 +683,70 @@ test('lab_clarification: un cambio di intenzione diretto riavvia il capitolo inv
     await handle(u, { text: 'gourmet' });
     assert.equal(u.state, 'lab_clarification');
 
-    const out = await handle(u, { text: 'no aspetta, voglio ricominciare' });
+    const asked = await handle(u, { text: 'no aspetta, voglio ricominciare' });
+    assert.equal(u.state, 'confirm_restart');
+
+    const out = await handle(u, { text: 'sì' });
     assert.equal(u.state, 'collecting_people');
     assert.match(out.text, /persone/i);
+  } finally {
+    restoreFetch();
+  }
+});
+
+// --- rete di sicurezza sul riavvio: conferma prima di ricominciare davvero (D-043) ----
+// Richiesto dal progettista: una frase che sembra voler ricominciare non deve mai
+// far perdere il piatto in corso senza una conferma esplicita.
+
+test('confirm_restart: rispondendo "no" si torna esattamente allo stato precedente, senza perdere nulla', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('confirmno1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' });
+    await handle(u, { text: '👣 Guidami' });
+    assert.equal(u.state, 'cooking');
+    const dishIdBefore = u.session.dishId;
+    const stepBefore = u.session.step;
+
+    const asked = await handle(u, { text: 'voglio ricominciare da capo' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(asked.text, /sicuro/i);
+
+    const out = await handle(u, { text: 'no, continua' });
+    assert.equal(u.state, 'cooking');
+    assert.equal(u.session.dishId, dishIdBefore);
+    assert.equal(u.session.step, stepBefore);
+    assert.equal(u.context.pendingRestart, null);
+    assert.match(out.text, /continuiamo/i);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('confirm_restart: una risposta ambigua non decide nulla e richiede di nuovo la conferma', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('confirmambig1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    assert.equal(u.state, 'proposal');
+
+    await handle(u, { text: 'ricominciamo' });
+    assert.equal(u.state, 'confirm_restart');
+
+    const out = await handle(u, { text: 'boh non so' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(out.text, /confermi/i);
   } finally {
     restoreFetch();
   }
