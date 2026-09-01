@@ -233,7 +233,7 @@ function parseTime(text){const hours=text.match(/\b(\d+(?:[.,]\d+)?)\s*(ora|ore|
 function parsePeopleLoose(text){const raw=String(text||'').trim();if(/^5\s*\+$/.test(raw))return '5';if(/^[1-4]$/.test(raw))return raw;return parsePeople(text)}
 function parseTimeLoose(text){const raw=String(text||'');if(/pi[uù]\s*di\s*un.?ora/i.test(raw))return '90';return parseTime(text)}
 function extractIngredients(n){const found=[];if(n.includes('trigli'))found.push('triglia');if(n.includes('alici'))found.push('alici');if(n.includes('acciugh'))found.push('acciughe');return found}
-function isIntentChoice(n){return n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo')||n.includes('nuova richiesta')||n.includes('ricominc')||n.includes('da capo')||n.includes('altra richiesta')||n.includes('resett')}
+function isIntentChoice(n){if(n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo'))return true;if(n.includes('nuova richiesta')||n.includes('altra richiesta')||n.includes('resett'))return true;if(n.includes('ricominc')||n.includes('da capo')||n.includes('ripart'))return true;if((n.includes('cambi')||n.includes('nuov')||n.includes('altra')||n.includes('altro'))&&(n.includes('ricetta')||n.includes('piatto')))return true;return false}
 function parseIntent(n){return n.includes('spesa')?'shopping':n.includes('cuciniamo')?'cook':'idea'}
 // Con i tasti rapidi (D-027) persone e tempo hanno domande proprie (vedi handle()); questa
 // prompt resta solo per l'ultima domanda, sempre a testo libero per non ridurre l'ampiezza
