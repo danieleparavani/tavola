@@ -97,8 +97,9 @@ export async function handle(user,input,{source='simulator'}={}){
   // direzioni gastronomiche tramite tryOneShot — la scorciatoia resta sempre disponibile.
   if(user.state==='confirm_restart'){
     const pending=user.context.pendingRestart||{};
-    if(/\bs[ìi]\b/.test(n)||n.includes('conferm')||n.includes('certo')||n.includes('ricomincia')){user.context.intent=pending.intent||null;user.context.people=null;user.context.time=null;user.context.pendingRestart=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'confirmed_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
-    if(/\bno\b/.test(n)||n.includes('continu')||n.includes('annull')||n.includes('resta')||n.includes('lascia')){user.state=pending.fromState||'collecting_context';user.context.pendingRestart=null;event(user,'restart_cancelled',{returnedTo:user.state});return reply('Va bene, continuiamo da dove eravamo.')}
+    const flat=n.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    if(/\bsi\b/.test(flat)||flat.includes('conferm')||flat.includes('certo')||flat.includes('ricomincia')){user.context.intent=pending.intent||null;user.context.people=null;user.context.time=null;user.context.pendingRestart=null;user.state='collecting_people';event(user,'intent_changed',{intent:user.context.intent,trigger:'confirmed_restart'});return reply('Per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(/\bno\b/.test(flat)||flat.includes('continu')||flat.includes('annull')||flat.includes('resta')||flat.includes('lascia')){user.state=pending.fromState||'collecting_context';user.context.pendingRestart=null;event(user,'restart_cancelled',{returnedTo:user.state});return reply('Va bene, continuiamo da dove eravamo.')}
     return reply('Non ho capito: confermi di voler ricominciare da capo? Rispondi sì o no.',[['✅ Sì, ricomincia','↩️ No, continua']])
   }
   if(user.state==='collecting_people'){
