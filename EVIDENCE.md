@@ -796,7 +796,13 @@ Vedi DECISIONS.md, D-046: nuovo modulo `core/atlante.mjs` (ricerca locale per so
 
 ### Limite dichiarato
 
-Non è stata misurata la riduzione di latenza reale: richiederebbe una chiave OpenAI attiva e un confronto cronometrato prima/dopo su una chiamata reale, non disponibile in questa sessione. La stima che il passo saltato (ricerca web in linea) sia quello lento si basa sulla lettura del codice, non su una misura diretta. La qualità del matching locale non è stata validata su un campione ampio di richieste reali, solo su pochi casi manuali durante lo sviluppo. Non ancora deployato sulla VM di produzione: resta da verificare dal vivo, sia la riduzione di latenza sia che la qualità delle ricette generate con le fonti locali superi il gate editoriale (D-015) come prima.
+Non è stata misurata la riduzione di latenza reale: richiederebbe una chiave OpenAI attiva e un confronto cronometrato prima/dopo su una chiamata reale, non disponibile nella sessione in cui è stato implementato. La stima che il passo saltato (ricerca web in linea) sia quello lento si basa sulla lettura del codice, non su una misura diretta. La qualità del matching locale non è stata validata su un campione ampio di richieste reali, solo su pochi casi manuali durante lo sviluppo.
+
+### Deploy in produzione (10 settembre 2026)
+
+Il push da questa sessione direttamente a GitHub è risultato bloccato dal proxy git della sessione ("repository non nel set autorizzato"), un limite di policy non aggirabile da qui. Preparato invece un bundle git (`tavola-D046-D047.bundle`) con i due commit (D-046, D-047), consegnato al progettista e scritto nella sua cartella locale connessa. Il progettista lo ha applicato da terminale SSH direttamente sulla VM di produzione: caricato il file, `git fetch`/`git merge`/`git push origin main` (push riuscito: `a87c59e..57c0962 main -> main`), poi `npm test` sulla VM (82/82 superati, confermando che l'ambiente di produzione non introduce differenze rispetto al clone di sviluppo) e `sudo systemctl restart tavola` (`active (running)` confermato via `systemctl status`). Verificato passo per passo con screenshot del terminale a ogni fase.
+
+Resta comunque da verificare dal vivo, sia la riduzione di latenza reale su una chiamata a Telegram reale, sia che la qualità delle ricette generate con le fonti locali superi il gate editoriale (D-015) come prima.
 
 ## Archivio tecnico locale aggiornato al pacchetto RAG-ready completo (10 settembre 2026)
 
