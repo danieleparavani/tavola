@@ -112,6 +112,7 @@ export async function handle(user,input,{source='simulator'}={}){
   }
   if(user.state==='collecting_time'){
     if(isIntentChoice(n))return askRestartConfirmation(user,n,'collecting_time')
+    if(detectFieldCorrection(n)==='people'){user.context.people=null;user.state='collecting_people';event(user,'field_correction',{field:'people',fromState:'collecting_time'});return reply('Va bene, correggiamo: per quante persone cuciniamo?',buttons.peopleQuick)}
     const shortcut=await tryOneShot(user,text,n);if(shortcut)return shortcut;
     const time=parseTimeLoose(text);
     if(!time){event(user,'time_unrecognized',{text});return reply('Non ho capito il tempo disponibile: scegli un tasto oppure scrivimelo (es. “45 minuti”).',buttons.timeQuick)}
@@ -120,6 +121,9 @@ export async function handle(user,input,{source='simulator'}={}){
   }
   if(user.state==='collecting_context'){
     if(isIntentChoice(n))return askRestartConfirmation(user,n,'collecting_context')
+    const correction=detectFieldCorrection(n);
+    if(correction==='people'){user.context.people=null;user.state='collecting_people';event(user,'field_correction',{field:'people',fromState:'collecting_context'});return reply('Va bene, correggiamo: per quante persone cuciniamo?',buttons.peopleQuick)}
+    if(correction==='time'){user.context.time=null;user.state='collecting_time';event(user,'field_correction',{field:'time',fromState:'collecting_context'});return reply('Va bene, correggiamo: quanto tempo hai a disposizione?',buttons.timeQuick)}
     if(!user.context.people)user.context.people=parsePeopleLoose(text);
     if(!user.context.time)user.context.time=parseTimeLoose(text);
     user.context.raw=text;user.context.ingredients=extractIngredients(n);
@@ -241,6 +245,22 @@ function parsePeopleLoose(text){const raw=String(text||'').trim();if(/^5\s*\+$/.
 function parseTimeLoose(text){const raw=String(text||'');if(/pi[uù]\s*di\s*un.?ora/i.test(raw))return '90';return parseTime(text)}
 function extractIngredients(n){const found=[];if(n.includes('trigli'))found.push('triglia');if(n.includes('alici'))found.push('alici');if(n.includes('acciugh'))found.push('acciughe');return found}
 function isIntentChoice(n){if(n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo'))return true;if(n.includes('nuova richiesta')||n.includes('altra richiesta')||n.includes('resett'))return true;if(n.includes('ricominc')||n.includes('da capo')||n.includes('ripart'))return true;if((n.includes('cambi')||n.includes('nuov')||n.includes('altra')||n.includes('altro'))&&(n.includes('ricetta')||n.includes('piatto')))return true;return false}
+// Correzione di un singolo dato già raccolto (persone o tempo), distinta da isIntentChoice:
+// lì l'utente vuole abbandonare il piatto e ricominciare da capo (con conferma, D-036/D-037);
+// qui vuole solo correggere un valore sbagliato senza perdere il resto del contesto già dato.
+// Evidenza: un tester ha scritto "ho sbagliato il numero di persone" mentre il sistema chiedeva
+// il tempo — non veniva riconosciuto né come scelta di tasto né come intento di riavvio, quindi
+// il messaggio cadeva nel parsing del tempo, falliva, e il sistema tornava a chiedere il tempo
+// all'infinito senza mai lasciare correggere le persone.
+function detectFieldCorrection(n){
+  const flat=n.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(!(/sbagliat|corregg|modific|cambi/.test(flat)))return null;
+  const wantsPeople=/person|commensal/.test(flat);
+  const wantsTime=/\btempo\b|minut|\bora\b|\bore\b/.test(flat);
+  if(wantsPeople&&!wantsTime)return 'people';
+  if(wantsTime&&!wantsPeople)return 'time';
+  return null;
+}
 function askRestartConfirmation(user,n,fromState){user.context.pendingRestart={intent:parseIntent(n),fromState};user.state='confirm_restart';event(user,'restart_confirmation_asked',{fromState});return reply('Sei sicuro di voler ricominciare? Il piatto in corso andrà perso.',[['✅ Sì, ricomincia','↩️ No, continua']])}
 function parseIntent(n){return n.includes('spesa')?'shopping':n.includes('cuciniamo')?'cook':'idea'}
 // Con i tasti rapidi (D-027) persone e tempo hanno domande proprie (vedi handle()); questa
