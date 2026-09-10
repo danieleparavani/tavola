@@ -137,6 +137,59 @@ test('tasti rapidi: "5+" e "più di un\'ora" vengono riconosciuti con un valore 
   void out;
 });
 
+// --- correzione di un dato già raccolto -----------------------------------------------
+// Evidenza: un tester ha scritto "ho sbagliato il numero di persone" mentre il sistema
+// chiedeva il tempo, e restava bloccato — il messaggio non era né un tasto rapido né un
+// intento di riavvio completo, quindi cadeva nel parsing del tempo, falliva, e il sistema
+// tornava a chiedere il tempo senza mai lasciare correggere le persone (cfr. DECISIONS.md).
+
+test('correzione: "ho sbagliato il numero di persone" mentre si sta rispondendo al tempo riporta a collecting_people senza perdere il resto', async () => {
+  const u = newUser('correction1', 'Tester');
+  await handle(u, { text: 'ciao' });
+  await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+  await handle(u, { text: '3' });
+  assert.equal(u.state, 'collecting_time');
+
+  const out = await handle(u, { text: 'ho sbagliato il numero di persone' });
+  assert.equal(u.state, 'collecting_people');
+  assert.equal(u.context.people, null);
+  assert.match(out.text, /persone/i);
+  assert.deepEqual(out.keyboard, [['1', '2'], ['3', '4'], ['5+']]);
+
+  const afterFix = await handle(u, { text: '4' });
+  assert.equal(u.context.people, '4');
+  assert.equal(u.state, 'collecting_time'); // torna avanti da sola, non ricomincia da capo
+});
+
+test('correzione: "voglio correggere il tempo" durante la domanda sull\'ingrediente riporta a collecting_time senza perdere le persone', async () => {
+  const u = newUser('correction2', 'Tester');
+  await handle(u, { text: 'ciao' });
+  await handle(u, { text: '💡 Cerco un’idea' });
+  await handle(u, { text: '2' });
+  await handle(u, { text: '30 min' });
+  assert.equal(u.state, 'collecting_context');
+
+  const out = await handle(u, { text: 'voglio correggere il tempo' });
+  assert.equal(u.state, 'collecting_time');
+  assert.equal(u.context.time, null);
+  assert.equal(u.context.people, '2'); // non toccato
+  assert.match(out.text, /tempo/i);
+});
+
+test('correzione: una frase di cottura che contiene "cambi" senza riferirsi a persone/tempo non viene trattata come correzione', async () => {
+  const u = newUser('correction3', 'Tester');
+  await handle(u, { text: 'ciao' });
+  await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+  const out = await handle(u, { text: '3' });
+  assert.equal(u.state, 'collecting_time');
+  void out;
+
+  // "cambia" compare, ma non si riferisce a persone né a tempo: deve restare nel parsing normale del tempo
+  const stillTime = await handle(u, { text: 'cambia il condimento se serve' });
+  assert.equal(u.state, 'collecting_time');
+  assert.equal(u.context.time, null);
+});
+
 test('scorciatoia one-shot: un solo messaggio con persone, tempo e ingrediente salta direttamente alle tre direzioni', async () => {
   installFetchMock();
   try {
