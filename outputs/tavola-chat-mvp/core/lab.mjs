@@ -47,12 +47,13 @@ export async function generateDifficultyIdeas(context){
 export async function generateLabPlan(context,followup=''){
   if(!labAvailable())throw new Error('LAB_NOT_CONNECTED');
   let editorialNotes='',draft=null,lastIssues=[];
-  // D-044: interroga prima l'archivio tecnico locale verificato (413 tecniche, data/atlante-
-  // tecniche/) sulla richiesta e sulla direzione scelta. Se copre la tecnica dominante, la
-  // ricerca web al primo tentativo viene saltata — è il passo più lento della generazione — e il
-  // laboratorio riceve comunque fonti già verificate da citare. Se l'archivio non trova nulla di
-  // pertinente, il comportamento resta quello precedente (ricerca web al primo tentativo), quindi
-  // nessuna richiesta perde in copertura rispetto a prima.
+  // D-046/D-047: interroga prima l'archivio tecnico locale verificato (Atlante Tecnico della
+  // Cucina, 413 tecniche / 5305 chunk di sezione, data/atlante-rag/) sulla richiesta e sulla
+  // direzione scelta. Se copre la tecnica dominante, la ricerca web al primo tentativo viene
+  // saltata — è il passo più lento della generazione — e il laboratorio riceve comunque fonti
+  // già verificate da citare. Se l'archivio non trova nulla di pertinente, il comportamento resta
+  // quello precedente (ricerca web al primo tentativo), quindi nessuna richiesta perde in
+  // copertura rispetto a prima.
   const archiveQuery=`${context.raw||''} ${context.selectedIdea?.name||''} ${context.selectedIdea?.description||''} ${context.selectedIdea?.principle||''}`;
   const {text:archiveContext,matches:archiveMatches}=localTechniqueContext(archiveQuery);
   for(let attempt=0;attempt<2;attempt++){

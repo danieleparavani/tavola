@@ -797,3 +797,25 @@ Vedi DECISIONS.md, D-046: nuovo modulo `core/atlante.mjs` (ricerca locale per so
 ### Limite dichiarato
 
 Non è stata misurata la riduzione di latenza reale: richiederebbe una chiave OpenAI attiva e un confronto cronometrato prima/dopo su una chiamata reale, non disponibile in questa sessione. La stima che il passo saltato (ricerca web in linea) sia quello lento si basa sulla lettura del codice, non su una misura diretta. La qualità del matching locale non è stata validata su un campione ampio di richieste reali, solo su pochi casi manuali durante lo sviluppo. Non ancora deployato sulla VM di produzione: resta da verificare dal vivo, sia la riduzione di latenza sia che la qualità delle ricette generate con le fonti locali superi il gate editoriale (D-015) come prima.
+
+## Archivio tecnico locale aggiornato al pacchetto RAG-ready completo (10 settembre 2026)
+
+### Evidenza osservata
+
+Subito dopo il collegamento dell'archivio condensato (D-046), il progettista ha chiesto se questa sessione avesse già i file del pacchetto "Atlante Tecnico della Cucina v2 — RAG READY" e li ha caricati in conversazione: `tecniche.jsonl` (413), `chunks_sezioni.jsonl` (5305), `fonti.jsonl` (270), `tecnica_fonte.csv` (1838), più `schema_rag.json`, `README_RAG.md`, `PROMPT_SISTEMA_CHATBOT.md`, `MANIFEST_SHA256.txt`. Verificato: gli hash SHA256 dei tre file JSONL usati corrispondono esattamente a quelli in `MANIFEST_SHA256.txt`. Lo stesso pacchetto era già presente nella cartella locale del progettista (`Atlante_v2_RAG_READY/`), in parte già ispezionato in questa sessione prima del caricamento diretto (README, schema, una query FTS5 di prova su `atlante_rag.sqlite`).
+
+### Interpretazione
+
+Il pacchetto RAG-ready contiene lo stesso corpus di D-046 (413 tecniche) ma non condensato: testo per sezione molto più esteso, 270 fonti invece di 30, e una strategia di retrieval dichiarata esplicitamente nel proprio README (recuperare prima i chunk di sezione, raggrupparli per tecnica, distinguere sempre contenuto documentato da controversie). La versione condensata usata in D-046 non permetteva questo livello di granularità né questa copertura di fonti.
+
+### Decisione
+
+Vedi DECISIONS.md, D-047: `core/atlante.mjs` riscritto per cercare sui 5305 chunk di sezione (non sulle 413 tecniche intere), raggruppare i risultati per tecnica, ed etichettare ogni sezione recuperata nel blocco iniettato nel prompt del laboratorio. Le fonti si risolvono tramite `source_local_ids` (già presente su ogni tecnica/chunk), disambiguato per `volume` perché lo stesso `local_id` si ripete con significato diverso in volumi diversi. `data/atlante-tecniche/` (D-046) rimossa e sostituita da `data/atlante-rag/`; non copiati `atlante_rag.sqlite` (avrebbe richiesto una dipendenza nativa o l'API sperimentale `node:sqlite`, non garantita sulla versione Node della VM) né `tecnica_fonte.csv` (ridondante: verificato che per tutte le 413 tecniche il conteggio delle fonti in `source_local_ids` coincide esattamente con quello in `tecnica_fonte.csv`).
+
+### Verifica
+
+`test/atlante.test.mjs` riscritto per la nuova API: 8 test puri (caricamento 413/5305/270; ricerca pertinente/non pertinente; raggruppamento chunk→tecnica; risoluzione fonti per volume; composizione del blocco con etichette di sezione). Tempo di caricamento dell'archivio all'avvio: ~51 ms. `test/server.integration.test.mjs` aggiornato per copiare `data/atlante-rag/` nella copia isolata (stesso tipo di problema già risolto in D-046, stessa correzione). Suite completa: 82/82 test superati, `npm run check` pulito.
+
+### Limite dichiarato
+
+Stessi limiti non risolti di D-046: nessuna misura di latenza reale, nessuna verifica dal vivo contro il gate editoriale, non ancora deployato sulla VM. Il matching sui chunk restituisce risultati più granulari ma potenzialmente più numerosi su query ambigue: non validato su un campione ampio di richieste reali.
