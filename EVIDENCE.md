@@ -761,3 +761,39 @@ Applicato e committato sulla VM di produzione (`f9eabd6` per il fix sugli accent
 ### Limite dichiarato
 
 La terza casistica (risposta ambigua, che ripete la domanda) è verificata solo dal test automatico, non dal vivo. Resta da confermare con un uso reale su Telegram che il passaggio in più non sia percepito come un attrito eccessivo dal progettista, specialmente quando il riavvio era davvero l'intenzione originaria.
+
+## Consolidamento — due commit del progettista fatti direttamente su GitHub (10 settembre 2026)
+
+### Evidenza osservata
+
+All'apertura di questa sessione, il repository GitHub (`origin/main`) conteneva 3 commit successivi all'ultimo consolidato nei registri canonici (D-043): `11c1f65` (accorcia il messaggio di proposta piatto), `b10e433` e `a87c59e` (permette di correggere persone/tempo già raccolti senza ricominciare, con i relativi test). Nessuno dei tre era ancora documentato in DECISIONS.md/EVIDENCE.md/NEXT.md.
+
+### Interpretazione
+
+Coerente con la nota già presente in NEXT.md dal 25 agosto: il repository può evolvere per mano del progettista direttamente, senza passare da una sessione Claude/Cowork. Questa sessione ha verificato che il codice fosse sano (`npm test`, 74/74 al momento della verifica) prima di aggiungere lavoro sopra.
+
+### Decisione
+
+Vedi DECISIONS.md, D-044 e D-045, per il dettaglio di ciascun cambiamento. Nessuna modifica al codice in questo consolidamento: solo documentazione allineata allo stato reale del repository.
+
+## Archivio tecnico locale collegato al laboratorio (10 settembre 2026)
+
+### Evidenza osservata
+
+Il progettista ha segnalato lentezza percepita nella generazione della ricetta completa. Lettura di `core/lab.mjs`: `generateLabPlan`, al primo tentativo, include sempre `tools:[{type:'web_search'}]` nella richiesta a OpenAI — una ricerca web reale in linea. Il repository conteneva già, non collegato a nessun modulo, un archivio tecnico locale in `data/atlante-tecniche/` (413 tecniche su 11 macroaree, 30 fonti risolte con titolo e URL) — lo stesso corpus, in forma condensata, dell'Atlante tecnico v2 RAG-ready presente nella cartella locale del progettista sul proprio computer (413 tecniche, verificato per corrispondenza del conteggio).
+
+### Interpretazione
+
+Il rallentamento percepito è compatibile con una ricerca web sincrona in ogni generazione di ricetta. L'archivio locale, essendo già verificato (fonti con `affidabilita` e tipo dichiarati) e strutturato in modo simile alle voci che il laboratorio già produce (definizione, come, perché, parametri critici, errori, sicurezza), è un candidato diretto per sostituire la ricerca web nei casi che copre.
+
+### Decisione
+
+Vedi DECISIONS.md, D-046: nuovo modulo `core/atlante.mjs` (ricerca locale per sovrapposizione di token, nessun embedding); `generateLabPlan` lo interroga prima di ogni chiamata e salta la ricerca web al primo tentativo quando trova almeno una tecnica pertinente; iniettato nel prompt come blocco "ARCHIVIO TECNICO LOCALE VERIFICATO" con le fonti già risolte. Se l'archivio non copre la richiesta, il comportamento resta quello precedente (nessuna perdita di copertura). Istruzioni del laboratorio aggiornate di conseguenza.
+
+### Verifica
+
+`test/atlante.test.mjs` (7 test nuovi, nessuna rete): 413 tecniche e 30 fonti caricate correttamente; una query sul risotto trova "Mantecare risotto"; una query senza token utili o con parole inventate non trova nulla (nessuna corrispondenza inventata); le fonti si risolvono in oggetti con titolo e URL reali; il blocco di contesto si compone solo quando ci sono match. Durante la stesura di questi test, `test/server.integration.test.mjs` è entrato in timeout su 4 test su 4 (server isolato in crash all'avvio): la copia isolata usata da questi test copiava solo `data/technique-map.draft.md`, non la nuova cartella `data/atlante-tecniche/` che `core/atlante.mjs` legge all'importazione. Corretto copiando anche quella cartella nella copia isolata. Suite completa dopo la correzione: 81/81 test superati, `npm run check` pulito.
+
+### Limite dichiarato
+
+Non è stata misurata la riduzione di latenza reale: richiederebbe una chiave OpenAI attiva e un confronto cronometrato prima/dopo su una chiamata reale, non disponibile in questa sessione. La stima che il passo saltato (ricerca web in linea) sia quello lento si basa sulla lettura del codice, non su una misura diretta. La qualità del matching locale non è stata validata su un campione ampio di richieste reali, solo su pochi casi manuali durante lo sviluppo. Non ancora deployato sulla VM di produzione: resta da verificare dal vivo, sia la riduzione di latenza sia che la qualità delle ricette generate con le fonti locali superi il gate editoriale (D-015) come prima.
