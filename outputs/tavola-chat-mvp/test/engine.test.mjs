@@ -28,9 +28,9 @@ function threeIdeas() {
   return {
     output_text: JSON.stringify({
       ideas: [
-        { level: 'simple', name: 'Zucca arrosto al rosmarino', description: 'Cottura diretta, poche variabili.', principle: 'Caramellizzazione superficiale', focus: 'Prima esposizione: osserva come il calore diretto scurisce la superficie senza seccare il centro.' },
-        { level: 'technical', name: 'Vellutata di zucca con crumble salato', description: 'Doppia consistenza controllata.', principle: 'Consistenza per contrasto', focus: 'Introduce il controllo di due consistenze nello stesso piatto.' },
-        { level: 'gourmet', name: 'Zucca in due cotture con salvia fritta', description: 'Concentrazione del sapore in due fasi.', principle: 'Cottura in due tempi', focus: 'Applica su una verdura la logica di cottura in due fasi già utile su altri ingredienti.' },
+        { level: 'simple', name: 'Zucca arrosto al rosmarino', description: 'Cottura diretta, poche variabili.', principle: 'Caramellizzazione superficiale', focus: 'Con questa ricetta affrontiamo la caramellizzazione: osserva come il calore diretto scurisce la superficie senza seccare il centro.', ingredients: ['zucca', 'rosmarino', 'olio', 'sale'] },
+        { level: 'technical', name: 'Vellutata di zucca con crumble salato', description: 'Doppia consistenza controllata.', principle: 'Consistenza per contrasto', focus: 'Con questa ricetta affrontiamo il controllo di due consistenze nello stesso piatto.', ingredients: ['zucca', 'brodo', 'farina', 'burro', 'nocciole'] },
+        { level: 'gourmet', name: 'Zucca in due cotture con salvia fritta', description: 'Concentrazione del sapore in due fasi.', principle: 'Cottura in due tempi', focus: 'Con questa ricetta affrontiamo la cottura in due tempi, già utile su altri ingredienti.', ingredients: ['zucca', 'salvia', 'burro', 'olio'] },
       ],
     }),
   };
@@ -43,9 +43,9 @@ function threeOtherIdeas() {
   return {
     output_text: JSON.stringify({
       ideas: [
-        { level: 'simple', name: 'Zucca al vapore con burro nocciola', description: 'Cottura delicata, condimento veloce.', principle: 'Cottura a vapore', focus: 'Prima esposizione alla cottura a vapore.' },
-        { level: 'technical', name: 'Gnocchi di zucca al forno', description: 'Impasto e cottura in due fasi.', principle: 'Legatura dell\'impasto', focus: 'Introduce il controllo dell\'umidità in un impasto.' },
-        { level: 'gourmet', name: 'Zucca fermentata e arrosto', description: 'Fermentazione breve, poi cottura diretta.', principle: 'Fermentazione lattica breve', focus: 'Applica un principio di trasformazione mai visto prima.' },
+        { level: 'simple', name: 'Zucca al vapore con burro nocciola', description: 'Cottura delicata, condimento veloce.', principle: 'Cottura a vapore', focus: 'Con questa ricetta affrontiamo la cottura a vapore, per la prima volta.', ingredients: ['zucca', 'burro', 'sale'] },
+        { level: 'technical', name: 'Gnocchi di zucca al forno', description: 'Impasto e cottura in due fasi.', principle: 'Legatura dell\'impasto', focus: 'Con questa ricetta affrontiamo il controllo dell\'umidità in un impasto.', ingredients: ['zucca', 'farina', 'uovo', 'parmigiano'] },
+        { level: 'gourmet', name: 'Zucca fermentata e arrosto', description: 'Fermentazione breve, poi cottura diretta.', principle: 'Fermentazione lattica breve', focus: 'Con questa ricetta affrontiamo un principio di trasformazione mai visto prima.', ingredients: ['zucca', 'sale', 'olio'] },
       ],
     }),
   };
@@ -319,8 +319,10 @@ test('proposeDifficultyMenu: senza tecniche osservate, la nota per il laboratori
     queueResponse(threeIdeas());
     const out = await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
     assert.equal(u.state, 'difficulty_choice');
-    assert.match(out.text, /Focus:/);
-    assert.match(out.text, /Prima esposizione/i); // dal fixture threeIdeas()
+    // D-052: il focus tecnico appare subito dopo il nome, senza l'etichetta "Focus:", seguito
+    // dalla lista ingredienti.
+    assert.match(out.text, /Con questa ricetta affrontiamo/i);
+    assert.match(out.text, /Ingredienti: zucca/);
   } finally {
     restoreFetch();
   }

@@ -355,7 +355,11 @@ function techniqueHistoryNote(user){
 }
 async function proposeDifficultyMenu(user){
   if(!labAvailable()){user.state='lab_connection_required';event(user,'lab_connection_required');return reply('Il laboratorio non è collegato. Apri la configurazione per attivare le tre direzioni gastronomiche.',[['⚙️ Come collegarlo?']])}
-  try{const ideas=await generateDifficultyIdeas(user.context,techniqueHistoryNote(user));user.context.difficultyIdeas=ideas;user.state='difficulty_choice';event(user,'difficulty_menu_generated',{ideas:ideas.map(x=>({level:x.level,name:x.name}))});const labels=['Semplice curato','Tecnico','Gourmet'];return reply(`Tre direzioni possibili:\n\n${ideas.map((x,i)=>`**${i+1}. ${labels[i]} — ${x.name}**\n${x.description}\n_Tecnica: ${x.principle}_\n_Focus: ${x.focus}_`).join('\n\n')}\n\nQuale vuoi sviluppare?`,difficultyButtons(ideas),{parseMode:'Markdown'})}catch(error){event(user,'difficulty_menu_failed',{message:error.message.slice(0,200)});user.state='collecting_context';return reply('Non sono riuscito a costruire tre direzioni abbastanza distinte. Riprova tra poco: non ti propongo alternative riempitive.')}
+  // D-052: subito dopo il nome, una sola frase di focus tecnico (formato "Con questa ricetta
+  // affrontiamo...", vincolato nello schema/istruzioni di generateDifficultyIdeas) e una lista
+  // breve degli ingredienti — non più le righe separate "Tecnica: .../Focus: ...", su richiesta
+  // esplicita del progettista.
+  try{const ideas=await generateDifficultyIdeas(user.context,techniqueHistoryNote(user));user.context.difficultyIdeas=ideas;user.state='difficulty_choice';event(user,'difficulty_menu_generated',{ideas:ideas.map(x=>({level:x.level,name:x.name}))});const labels=['Semplice curato','Tecnico','Gourmet'];return reply(`Tre direzioni possibili:\n\n${ideas.map((x,i)=>`**${i+1}. ${labels[i]} — ${x.name}**\n${x.focus}\nIngredienti: ${x.ingredients.join(', ')}`).join('\n\n')}\n\nQuale vuoi sviluppare?`,difficultyButtons(ideas),{parseMode:'Markdown'})}catch(error){event(user,'difficulty_menu_failed',{message:error.message.slice(0,200)});user.state='collecting_context';return reply('Non sono riuscito a costruire tre direzioni abbastanza distinte. Riprova tra poco: non ti propongo alternative riempitive.')}
 }
 function difficultyButtons(ideas){return ideas.map((x,i)=>[[`${i===0?'🌿':i===1?'🔬':'✨'} ${i===0?'Semplice curato':i===1?'Tecnico':'Gourmet'} — ${x.name}`]]).flat()}
 async function proposeFromLab(user,followup=''){
