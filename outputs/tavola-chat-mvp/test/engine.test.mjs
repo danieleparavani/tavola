@@ -588,6 +588,100 @@ test('willCallLab in cooking: vero solo quando il messaggio non è una delle ris
   }
 });
 
+test('cooking: "torna indietro" riporta davvero al passaggio precedente, via scorciatoia lessicale (D-056)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('cooking-back-lexical1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' }); // proposal -> mode
+    await handle(u, { text: 'Guidami' }); // mode -> cooking, step 0
+    await handle(u, { text: 'fatto, avanti' }); // step 1 ("Rosola in padella")
+    assert.equal(u.session.step, 1);
+
+    const out = await handle(u, { text: 'torna indietro' });
+    assert.equal(u.session.step, 0);
+    assert.match(out.text, /Ammorbidisci la zucca/);
+    assert.ok(u.events.some(e => e.type === 'step_back'));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('cooking: una richiesta di tornare indietro formulata senza "indietro"/"precedente" viene comunque riconosciuta (D-056)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('cooking-back-nlp1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' });
+    await handle(u, { text: 'Guidami' }); // mode -> cooking, step 0
+    await handle(u, { text: 'fatto, avanti' }); // step 1
+    assert.equal(u.session.step, 1);
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'indietro' }) });
+    const out = await handle(u, { text: 'un attimo, rifacciamo il passaggio di prima' });
+    assert.equal(u.session.step, 0);
+    assert.match(out.text, /Ammorbidisci la zucca/);
+    assert.ok(u.events.some(e => e.type === 'cooking_intent_classified' && e.payload.choice === 'indietro'));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('cooking: chiedere di tornare indietro dal primo passaggio non retrocede e lo spiega (D-056)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('cooking-back-firststep1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' });
+    await handle(u, { text: 'Guidami' }); // mode -> cooking, step 0
+    assert.equal(u.session.step, 0);
+
+    const out = await handle(u, { text: 'torna indietro' });
+    assert.equal(u.session.step, 0);
+    assert.match(out.text, /primo passaggio/);
+    assert.ok(u.events.some(e => e.type === 'step_back_denied'));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('willCallLab in cooking: "indietro"/"precedente" sono risposte lessicali immediate, non chiamano il laboratorio (D-056)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('willcalllab-cooking-back1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' });
+    await handle(u, { text: 'Guidami' }); // mode -> cooking
+    assert.equal(u.state, 'cooking');
+
+    assert.equal(willCallLab(u, 'torna indietro'), false);
+    assert.equal(willCallLab(u, 'passaggio precedente'), false);
+    assert.equal(willCallLab(u, 'rifacciamo quello di prima'), true); // stesso intento, parole diverse
+  } finally {
+    restoreFetch();
+  }
+});
+
 // --- simulazione vs esperienza reale --------------------------------------------------
 
 test('simulazione: passaggi completati in pochi secondi vengono registrati come simulazione, non come competenza acquisita', async () => {

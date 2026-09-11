@@ -102,7 +102,9 @@ export function willCallLab(user,text){
   // già da prima (D-018) ma senza mai mostrare "sto pensando", e ora un messaggio non riconosciuto
   // dalle regole rapide può chiamare il laboratorio anche solo per classificare l'intento. Vero
   // esattamente quando handle() non risponderà all'istante: non un intento di riavvio, e nessuna
-  // delle risposte lessicali immediate (perché/dubbio/non è cambiato/risolto/avanti-inizia).
+  // delle risposte lessicali immediate (perché/dubbio/non è cambiato/risolto/avanti-inizia/indietro).
+  // D-056: cookingInstantMatchesLexical ora include anche goBackMatchesLexical, quindi questa
+  // condizione resta corretta senza modifiche dirette qui.
   if(user.state==='cooking')return !isIntentChoice(n)&&!cookingInstantMatchesLexical(n);
   return false;
 }
@@ -340,6 +342,13 @@ export async function handle(user,input,{source='simulator'}={}){
     if(n.includes('dubbio')){event(user,'help_requested',{step:user.session.step});return reply(s.help,[['✅ Risolto','🆘 Non è cambiato'],['🔬 Perché?']])}
     if(n.includes('non è cambiato')||n.includes('non e cambiato'))return reply('Descrivimi ciò che vedi oppure manda una foto. Se mancano elementi sufficienti, ti dirò esplicitamente cosa non posso determinare.');
     if(n.includes('risolto'))return reply('Bene. Riprendiamo dal passaggio corrente.',buttons.step);
+    // D-056: richiesta esplicita di tornare al passaggio precedente. Prima non esisteva nessuna
+    // azione che retrocedesse davvero user.session.step: un "torniamo indietro" cadeva nel
+    // classifyIntent avanti/dubbio, veniva quasi sempre letto come "dubbio" e riceveva una
+    // risposta conversazionale che non spostava affatto la guida — non un vero "indietro" (nota
+    // lasciata esplicitamente come limite in D-055). Stesso pattern: scorciatoia lessicale rapida,
+    // poi una terza opzione nella classificazione AI.
+    if(goBackMatchesLexical(n))return goBackStep(user,d);
     if(cookingAdvanceMatchesLexical(n))return advanceStep(user,d);
     // D-055: prima, un modo diverso ma equivalente di dire "ho finito, andiamo avanti" (es.
     // "continua", "prossimo passaggio", "ok procediamo") non veniva riconosciuto e finiva dritto
@@ -349,12 +358,17 @@ export async function handle(user,input,{source='simulator'}={}){
     // già in uso altrove (D-051/D-053/D-054): regola lessicale rapida per il caso comune, e solo
     // se non matcha si chiede al laboratorio di distinguere col significato, non con le parole
     // esatte, tra "vuole avanzare" e "ha un dubbio reale sul passaggio corrente".
+    // D-056: aggiunta una terza opzione "indietro" alla stessa classificazione, così anche una
+    // richiesta di tornare indietro formulata senza le parole lessicali previste viene riconosciuta
+    // per significato, non solo scartata verso il dubbio.
     const advanceChoice=await classifyIntent(text,[
       {key:'avanti',description:'ha finito questo passaggio e vuole passare al successivo'},
-      {key:'dubbio',description:'ha un dubbio, una domanda, un problema o un\'osservazione sul passaggio corrente, non vuole ancora avanzare'},
+      {key:'indietro',description:'vuole tornare al passaggio precedente, quello di prima, non a quello attuale'},
+      {key:'dubbio',description:'ha un dubbio, una domanda, un problema o un\'osservazione sul passaggio corrente, non vuole ancora avanzare né tornare indietro'},
     ]);
     event(user,'cooking_intent_classified',{text,choice:advanceChoice});
     if(advanceChoice==='avanti')return advanceStep(user,d);
+    if(advanceChoice==='indietro')return goBackStep(user,d);
     event(user,'doubt_asked',{step:user.session.step});const doubtAnswer=await answerCookingDoubt(d,s,text);event(user,'doubt_answered',{step:user.session.step});return reply(doubtAnswer,[['✅ Risolto','🆘 Non è cambiato'],['🔬 Perché?']]);
   }
   if(user.state==='closure'){user.session.answers.result=text;user.session.isSimulation=n.includes('simulazione')||n.includes('non l’ho cucinato')||n.includes('non l ho cucinato');user.state='reflection';event(user,'result_reported',{answer:text,isSimulation:user.session.isSimulation});return reply(user.session.isSimulation?'Questa prova sarà registrata come simulazione dell’interfaccia, non come esperienza culinaria. Quale punto della proposta cambieresti?':'Una sola cosa: cosa rifaresti uguale o cambieresti?')}
@@ -460,6 +474,13 @@ function advanceStep(user,d){
   if(user.session.step===d.steps.length-1){user.state='closure';event(user,'cooking_completed');return reply(d.closure,d.closureButtons)}
   user.session.step++;return cookingReply(user);
 }
+// D-056: simmetrica ad advanceStep, ma verso il passaggio precedente. Non esiste un modo di
+// tornare indietro oltre il primo passaggio: in quel caso non si retrocede e si spiega perché,
+// invece di lasciare lo step a un valore negativo o restare in silenzio.
+function goBackStep(user,d){
+  if(user.session.step===0){event(user,'step_back_denied',{step:0});return reply('Sei già al primo passaggio: non c\'è un passaggio precedente a cui tornare.',buttons.step)}
+  user.session.step--;event(user,'step_back',{step:user.session.step});return cookingReply(user);
+}
 function cookingReply(user){
   const d=currentDish(user),i=user.session.step,s=d.steps[i];event(user,'step_shown',{step:i,mode:user.session.mode});
   const isLastStep=i===d.steps.length-1,isCritical=isLastStep||norm(s.term)===norm(d.principle.term);
@@ -511,10 +532,15 @@ function fullReadStartMatchesLexical(n){return n.includes('inizia')}
 // ovunque serva sapere se un messaggio in 'cooking' significa "avanti" senza dover per forza
 // interrogare il laboratorio.
 function cookingAdvanceMatchesLexical(n){return n.includes('avanti')||n.includes('inizia')}
+// D-056: scorciatoia lessicale per la richiesta di tornare al passaggio precedente. "precedente"
+// da solo copre anche "passo precedente"/"passaggio precedente"; "indietro" copre "torna
+// indietro"/"vai indietro"/"un passo indietro".
+function goBackMatchesLexical(n){return n.includes('indietro')||n.includes('precedente')}
 // D-055: riunisce tutte le risposte immediate (non-AI) possibili nello stato 'cooking', usata da
 // willCallLab per sapere se un messaggio verrà risposto all'istante oppure farà davvero partire
 // una chiamata al laboratorio (classifyIntent e/o answerCookingDoubt).
-function cookingInstantMatchesLexical(n){return n.includes('perché')||n.includes('perche')||n.includes('dubbio')||n.includes('non è cambiato')||n.includes('non e cambiato')||n.includes('risolto')||cookingAdvanceMatchesLexical(n)}
+// D-056: estesa a goBackMatchesLexical, per lo stesso motivo.
+function cookingInstantMatchesLexical(n){return n.includes('perché')||n.includes('perche')||n.includes('dubbio')||n.includes('non è cambiato')||n.includes('non e cambiato')||n.includes('risolto')||cookingAdvanceMatchesLexical(n)||goBackMatchesLexical(n)}
 function dplusMatchesLexical(n){return n.includes('curiosità')||n.includes('curiosita')||n.includes('percorso')||n.includes('cambia orario')}
 function isIntentChoice(n){if(n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo'))return true;if(n.includes('nuova richiesta')||n.includes('altra richiesta')||n.includes('resett'))return true;if(n.includes('ricominc')||n.includes('da capo')||n.includes('ripart'))return true;if((n.includes('cambi')||n.includes('nuov')||n.includes('altra')||n.includes('altro'))&&(n.includes('ricetta')||n.includes('piatto')))return true;return false}
 // Correzione di un singolo dato già raccolto (persone o tempo), distinta da isIntentChoice:

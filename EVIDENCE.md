@@ -985,3 +985,25 @@ Due nuovi test in `test/engine.test.mjs` (riconoscimento di un sinonimo di "avan
 ### Limite dichiarato
 
 Gli stati di raccolta dati puramente strutturati (persone, tempo, orario del D+1) restano intenzionalmente solo a regole lessicali, per coerenza con la distinzione già tracciata in D-051 tra un dato preciso da estrarre e un intento da riconoscere tra pochi possibili. Non ancora verificato dal vivo su Telegram.
+
+## Verifica di copertura — "torna indietro" durante la cucina guidata (11 settembre 2026)
+
+### Evidenza osservata
+
+Dopo il deploy di D-055, il progettista ha chiesto se il sistema ora "riesce a rispondere ad ogni richiesta", citando esplicitamente "tornare indietro" tra gli esempi. Prima di rispondere, è stato controllato il codice reale dello stato `cooking`.
+
+### Interpretazione
+
+Nessuna azione esistente retrocedeva `user.session.step`. Una richiesta di tornare indietro veniva assorbita dalla classificazione avanti/dubbio introdotta in D-055 e trattata quasi sempre come un dubbio: l'AI rispondeva in modo coerente col testo, ma la guida non si spostava mai davvero al passaggio precedente. La risposta data al progettista ha dichiarato onestamente questa lacuna prima di iniziare a correggerla.
+
+### Decisione
+
+Vedi DECISIONS.md, D-056: nuova azione `goBackStep`, simmetrica ad `advanceStep`, con una terza opzione `indietro` nella stessa classificazione `avanti`/`dubbio` e una scorciatoia lessicale rapida per il caso comune.
+
+### Verifica
+
+Quattro nuovi test in `test/engine.test.mjs`: spostamento reale del passaggio via scorciatoia lessicale e via classificazione AI; rifiuto esplicito quando si è già al primo passaggio; copertura di `willCallLab` per le nuove risposte lessicali immediate. Suite completa: 117/117 test superati.
+
+### Limite dichiarato
+
+Si torna indietro di un solo passaggio alla volta, non a un passaggio arbitrario indicato per numero. Non c'è invalidazione del tempo trascorso registrato per un passaggio ripetuto dopo un ritorno indietro. Non ancora verificato dal vivo su Telegram.
