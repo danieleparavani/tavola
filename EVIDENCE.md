@@ -963,3 +963,25 @@ Due nuovi test in `test/engine.test.mjs`: uno verifica che la correzione applica
 ### Limite dichiarato
 
 La correzione riguarda un solo campo di un solo passaggio per messaggio, non più elementi contemporaneamente. Nessun controllo editoriale verifica che la correzione proposta dal laboratorio sia davvero corretta. La correzione si applica solo al piatto generato di questa sessione, non viene ricordata se l'utente ricomincia da capo con lo stesso piatto. Non ancora verificato dal vivo su Telegram.
+
+## Richiesta di principio generale — "ogni cosa che scrive deve essere recepita ed avere una risposta coerente con il contesto" (11 settembre 2026)
+
+### Evidenza osservata
+
+Dopo D-053 e D-054, il progettista ha posto un principio generale: "ogni cosa che scrive deve essere recepita ed avere una risposta coerente con il contesto". Non un nuovo caso specifico, ma la richiesta di verificare se lo stesso difetto (testo libero riconosciuto solo per parole esatte, non per significato) fosse presente altrove.
+
+### Interpretazione
+
+Lo stato `cooking` (la guida passo per passo vera e propria, subito dopo lo stato corretto in D-053/D-054) aveva lo stesso difetto, già dichiarato come limite accettato alla fine di D-053. "Avanti" era riconosciuto solo alla lettera; un sinonimo cadeva nel ramo del dubbio e riceveva dal laboratorio una risposta a una domanda mai posta — una risposta presente ma incoerente col contesto, non un buco silenzioso.
+
+### Decisione
+
+Vedi DECISIONS.md, D-055: stesso pattern di fallback `classifyIntent` già usato in D-051/D-053/D-054, applicato ora anche al riconoscimento di "vuole avanzare" contro "ha un dubbio reale" nello stato `cooking`. `willCallLab` esteso a questo stato per coerenza dell'indicatore "sto pensando".
+
+### Verifica
+
+Due nuovi test in `test/engine.test.mjs` (riconoscimento di un sinonimo di "avanti"; copertura di `willCallLab` per `cooking`). Suite completa: 113/113 test superati.
+
+### Limite dichiarato
+
+Gli stati di raccolta dati puramente strutturati (persone, tempo, orario del D+1) restano intenzionalmente solo a regole lessicali, per coerenza con la distinzione già tracciata in D-051 tra un dato preciso da estrarre e un intento da riconoscere tra pochi possibili. Non ancora verificato dal vivo su Telegram.

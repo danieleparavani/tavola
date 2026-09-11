@@ -98,6 +98,12 @@ export function willCallLab(user,text){
   // rispondere alla domanda), quindi "sto pensando" resta corretto in entrambi i casi.
   if(user.state==='mode')return !isIntentChoice(n)&&(user.session?.mode==='full'?!fullReadStartMatchesLexical(n):!modeMatchesLexical(n));
   if(user.state==='dplus')return !dplusMatchesLexical(n);
+  // D-055: 'cooking' non era mai stata inclusa qui — il fallback verso answerCookingDoubt esisteva
+  // già da prima (D-018) ma senza mai mostrare "sto pensando", e ora un messaggio non riconosciuto
+  // dalle regole rapide può chiamare il laboratorio anche solo per classificare l'intento. Vero
+  // esattamente quando handle() non risponderà all'istante: non un intento di riavvio, e nessuna
+  // delle risposte lessicali immediate (perché/dubbio/non è cambiato/risolto/avanti-inizia).
+  if(user.state==='cooking')return !isIntentChoice(n)&&!cookingInstantMatchesLexical(n);
   return false;
 }
 
@@ -334,7 +340,21 @@ export async function handle(user,input,{source='simulator'}={}){
     if(n.includes('dubbio')){event(user,'help_requested',{step:user.session.step});return reply(s.help,[['✅ Risolto','🆘 Non è cambiato'],['🔬 Perché?']])}
     if(n.includes('non è cambiato')||n.includes('non e cambiato'))return reply('Descrivimi ciò che vedi oppure manda una foto. Se mancano elementi sufficienti, ti dirò esplicitamente cosa non posso determinare.');
     if(n.includes('risolto'))return reply('Bene. Riprendiamo dal passaggio corrente.',buttons.step);
-    if(n.includes('avanti')||n.includes('inizia')){const now=Date.now(),elapsed=user.session.lastStepAt?Math.round((now-user.session.lastStepAt)/1000):null;user.session.lastStepAt=now;event(user,'step_completed',{step:user.session.step,elapsedSeconds:elapsed,pace:elapsed!==null&&elapsed<15?'rapid_test':'plausible'});if(user.session.step===d.steps.length-1){user.state='closure';event(user,'cooking_completed');return reply(d.closure,d.closureButtons)}user.session.step++;return cookingReply(user)}
+    if(cookingAdvanceMatchesLexical(n))return advanceStep(user,d);
+    // D-055: prima, un modo diverso ma equivalente di dire "ho finito, andiamo avanti" (es.
+    // "continua", "prossimo passaggio", "ok procediamo") non veniva riconosciuto e finiva dritto
+    // ad answerCookingDoubt, che rispondeva a un dubbio mai posto — non un fallback generico, ma
+    // una risposta AI incoerente col contesto reale del messaggio (il progettista: "ogni cosa che
+    // scrive deve essere recepita ed avere una risposta coerente con il contesto"). Stesso pattern
+    // già in uso altrove (D-051/D-053/D-054): regola lessicale rapida per il caso comune, e solo
+    // se non matcha si chiede al laboratorio di distinguere col significato, non con le parole
+    // esatte, tra "vuole avanzare" e "ha un dubbio reale sul passaggio corrente".
+    const advanceChoice=await classifyIntent(text,[
+      {key:'avanti',description:'ha finito questo passaggio e vuole passare al successivo'},
+      {key:'dubbio',description:'ha un dubbio, una domanda, un problema o un\'osservazione sul passaggio corrente, non vuole ancora avanzare'},
+    ]);
+    event(user,'cooking_intent_classified',{text,choice:advanceChoice});
+    if(advanceChoice==='avanti')return advanceStep(user,d);
     event(user,'doubt_asked',{step:user.session.step});const doubtAnswer=await answerCookingDoubt(d,s,text);event(user,'doubt_answered',{step:user.session.step});return reply(doubtAnswer,[['✅ Risolto','🆘 Non è cambiato'],['🔬 Perché?']]);
   }
   if(user.state==='closure'){user.session.answers.result=text;user.session.isSimulation=n.includes('simulazione')||n.includes('non l’ho cucinato')||n.includes('non l ho cucinato');user.state='reflection';event(user,'result_reported',{answer:text,isSimulation:user.session.isSimulation});return reply(user.session.isSimulation?'Questa prova sarà registrata come simulazione dell’interfaccia, non come esperienza culinaria. Quale punto della proposta cambieresti?':'Una sola cosa: cosa rifaresti uguale o cambieresti?')}
@@ -432,6 +452,14 @@ async function proposeFromLab(user,followup=''){
   }
 }
 function currentDish(user){return user.session?.generatedDish||dishes[user.session?.dishId||'alici']}
+// D-055: estratta da handle() perché ora ha due punti di chiamata (regola lessicale rapida e
+// fallback classifyIntent, cfr. blocco 'cooking' sopra) che devono comportarsi in modo identico.
+function advanceStep(user,d){
+  const now=Date.now(),elapsed=user.session.lastStepAt?Math.round((now-user.session.lastStepAt)/1000):null;user.session.lastStepAt=now;
+  event(user,'step_completed',{step:user.session.step,elapsedSeconds:elapsed,pace:elapsed!==null&&elapsed<15?'rapid_test':'plausible'});
+  if(user.session.step===d.steps.length-1){user.state='closure';event(user,'cooking_completed');return reply(d.closure,d.closureButtons)}
+  user.session.step++;return cookingReply(user);
+}
 function cookingReply(user){
   const d=currentDish(user),i=user.session.step,s=d.steps[i];event(user,'step_shown',{step:i,mode:user.session.mode});
   const isLastStep=i===d.steps.length-1,isCritical=isLastStep||norm(s.term)===norm(d.principle.term);
@@ -478,6 +506,15 @@ function modeMatchesLexical(n){return n.includes('leggere')||n.includes('critici
 // iniziare a cucinare — distinto da modeMatchesLexical, che serve alla scelta iniziale fra le tre
 // modalità e il cui 'guida' matcherebbe anche "Inizia la guida" per un motivo estraneo.
 function fullReadStartMatchesLexical(n){return n.includes('inizia')}
+// D-055: scorciatoia lessicale rapida per la richiesta più comune di avanzare durante la guida
+// passo passo, usata sia nel dispatch di handle() sia — per coerenza, stesso motivo di D-051 —
+// ovunque serva sapere se un messaggio in 'cooking' significa "avanti" senza dover per forza
+// interrogare il laboratorio.
+function cookingAdvanceMatchesLexical(n){return n.includes('avanti')||n.includes('inizia')}
+// D-055: riunisce tutte le risposte immediate (non-AI) possibili nello stato 'cooking', usata da
+// willCallLab per sapere se un messaggio verrà risposto all'istante oppure farà davvero partire
+// una chiamata al laboratorio (classifyIntent e/o answerCookingDoubt).
+function cookingInstantMatchesLexical(n){return n.includes('perché')||n.includes('perche')||n.includes('dubbio')||n.includes('non è cambiato')||n.includes('non e cambiato')||n.includes('risolto')||cookingAdvanceMatchesLexical(n)}
 function dplusMatchesLexical(n){return n.includes('curiosità')||n.includes('curiosita')||n.includes('percorso')||n.includes('cambia orario')}
 function isIntentChoice(n){if(n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo'))return true;if(n.includes('nuova richiesta')||n.includes('altra richiesta')||n.includes('resett'))return true;if(n.includes('ricominc')||n.includes('da capo')||n.includes('ripart'))return true;if((n.includes('cambi')||n.includes('nuov')||n.includes('altra')||n.includes('altro'))&&(n.includes('ricetta')||n.includes('piatto')))return true;return false}
 // Correzione di un singolo dato già raccolto (persone o tempo), distinta da isIntentChoice:

@@ -524,12 +524,65 @@ test('cooking: un dubbio libero non riconosciuto riceve una risposta reale, non 
     await handle(u, { text: 'gourmet' });
     await handle(u, { text: 'ci sono' }); // proposal -> mode
     await handle(u, { text: 'Guidami' }); // mode -> cooking
+    // D-055: prima di rispondere al dubbio, handle() chiede al laboratorio di distinguere
+    // "vuole avanzare" da "ha un dubbio" (il testo non contiene "avanti"/"inizia").
+    queueResponse({ output_text: JSON.stringify({ choice: 'dubbio' }) });
     queueResponse({ output_text: 'Il basilico vecchio ma non ammuffito va bene: sostituiscilo solo se ammuffito o troppo secco.' });
     const out = await handle(u, { text: 'questo basilico sembra troppo vecchio, meglio cambiarlo?' });
     assert.doesNotMatch(out.text, /Resto sul passaggio corrente/);
     assert.match(out.text, /basilico/);
     assert.ok(u.events.some(e => e.type === 'doubt_asked'));
     assert.ok(u.events.some(e => e.type === 'doubt_answered'));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('cooking: una richiesta di avanzare formulata senza "avanti"/"inizia" viene comunque riconosciuta, non trattata come un dubbio (D-055)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('cooking-advance-nlp1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' }); // proposal -> mode
+    await handle(u, { text: 'Guidami' }); // mode -> cooking, step 0
+    assert.equal(u.session.step, 0);
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'avanti' }) });
+    const out = await handle(u, { text: 'fatto, ho finito, proseguiamo pure' });
+    assert.equal(u.session.step, 1);
+    assert.match(out.text, /Rosola in padella/);
+    assert.ok(u.events.some(e => e.type === 'cooking_intent_classified' && e.payload.choice === 'avanti'));
+    assert.ok(!u.events.some(e => e.type === 'doubt_asked'));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('willCallLab in cooking: vero solo quando il messaggio non è una delle risposte lessicali immediate (D-055)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('willcalllab-cooking1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' });
+    await handle(u, { text: 'Guidami' }); // mode -> cooking
+    assert.equal(u.state, 'cooking');
+
+    assert.equal(willCallLab(u, 'fatto, avanti'), false);
+    assert.equal(willCallLab(u, 'ho un dubbio'), false);
+    assert.equal(willCallLab(u, 'risolto'), false);
+    assert.equal(willCallLab(u, 'perché?'), false);
+    assert.equal(willCallLab(u, 'continua pure, andiamo'), true); // stesso intento di "avanti", parole diverse
+    assert.equal(willCallLab(u, 'questo basilico sembra vecchio'), true);
   } finally {
     restoreFetch();
   }
