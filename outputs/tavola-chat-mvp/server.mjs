@@ -54,10 +54,11 @@ async function telegramUpdate(update){
     if(String(text||'').trim().toLowerCase().includes('ho capito')){u.consentAt=new Date().toISOString();save()}
     else{save();await sendTelegram(msg.chat.id,{text:CONSENT_TEXT,keyboard:[[CONSENT_BUTTON]]});return}
   }
-  // D-050: mostra "sto pensando" solo quando il messaggio farà davvero ripartire il laboratorio
-  // (scelta di un livello, o una richiesta esplicita di altre proposte) — non per qualunque testo
-  // ricevuto mentre si è in 'difficulty_choice', altrimenti precede anche risposte istantanee.
-  if(willCallLab(u,text))await sendTelegram(msg.chat.id,{text:'Sto pensando alla proposta...'});
+  // D-050/D-051: mostra "sto pensando" solo quando il messaggio farà davvero ripartire il
+  // laboratorio (scelta di un livello, richiesta di altre proposte, o un fallback di
+  // interpretazione del linguaggio in uno dei quattro stati che lo prevedono) — non per
+  // qualunque testo ricevuto in quegli stati, altrimenti precede anche risposte istantanee.
+  if(willCallLab(u,text))await sendTelegram(msg.chat.id,{text:'Sto pensando...'});
   const out=await handle(u,{text,voice:Boolean(update.message?.voice),photo:Boolean(update.message?.photo)},{source:'telegram'});save();await sendTelegram(msg.chat.id,out);
 }
 // Consegna proattiva del D+1 (Fase 1, item "Programmare il D+1 in una fascia scelta dall'utente"):

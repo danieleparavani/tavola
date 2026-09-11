@@ -897,3 +897,25 @@ Vedi DECISIONS.md, D-050: nuovo riconoscimento esplicito di una richiesta di alt
 ### Limite dichiarato
 
 Il riconoscimento della richiesta di alternative è lessicale (un elenco di frasi comuni), non semantico: formulazioni molto diverse da quelle previste potrebbero ancora cadere nel fallback, anche se ora quel fallback suggerisce esplicitamente la formula che funziona. Non ancora verificato dal vivo su Telegram con una vera chiamata al laboratorio che rigenera.
+
+## Failure osservato su Telegram reale — "altre proposte" ancora non riconosciuta dopo D-050; richiesta di riconoscimento generale del linguaggio (11 settembre 2026)
+
+### Evidenza osservata
+
+Subito dopo il deploy di D-050, il progettista ha mostrato un nuovo screenshot Telegram: la stessa dinamica già corretta — "dammi altre proposte" seguita da "Sto pensando...", poi le stesse identiche tre proposte con un rimprovero. Interrogato se il problema fosse solo quella frase specifica, il progettista ha scritto testualmente: "si ma deve riconoscere il linguaggio come una AI come qui ma nel sistema, perché spesso si blocca" — segnalando che il bot si blocca spesso, non solo in quel punto, e chiedendo un riconoscimento del linguaggio naturale paragonabile a quello di questa conversazione stessa.
+
+### Interpretazione
+
+Il pattern era strutturale, non un singolo caso dimenticato: più stati della conversazione (`difficulty_choice`, `proposal`, `mode`, `dplus`) riconoscevano l'intento dell'utente solo tramite confronto lessicale scritto a mano (`n.includes('parola esatta')`). Qualunque formulazione equivalente con parole diverse da quelle previste non veniva riconosciuta.
+
+### Decisione
+
+Interrogato con una domanda diretta su tre alternative (correggere solo il punto già segnalato; mappare prima tutti i punti deboli e decidere dopo; applicare interpretazione AI ovunque il testo libero non trovi corrispondenza lessicale), il progettista ha scelto esplicitamente la terza: "Interpretazione AI ovunque il testo libero non matcha (consigliato)". Vedi DECISIONS.md, D-051: nuova `classifyIntent` in `core/lab.mjs`, usata come fallback in tutti e quattro gli stati segnalati, con un piccolo insieme fisso di scelte valide per stato (mai testo libero generato), coerente con D-012.
+
+### Verifica
+
+7 nuovi test in `test/engine.test.mjs`, più aggiornamento di 4 test preesistenti alla nuova semantica di `willCallLab`. Durante la verifica sono stati trovati e corretti due bug reali (non solo errori di test): il gate iniziale di `handle()` rendeva il fallback `classifyIntent` in stato `dplus` di fatto irraggiungibile per testo libero, e un'asserzione di test era sbagliata sul contenuto atteso in modalità "leggi tutto". Suite completa dopo le correzioni: 108/108 test superati.
+
+### Limite dichiarato
+
+Ogni fallback aggiunge una chiamata di rete solo quando le regole lessicali non bastano; l'accuratezza della classificazione non è stata misurata su un campione ampio di italiano reale, solo sui casi discussi col progettista. Alcuni stati (raccolta persone/tempo/ingredienti, conferma di riavvio) restano intenzionalmente solo a regole perché l'input atteso è un dato preciso, non un intento tra pochi possibili. Non ancora verificato dal vivo su Telegram.

@@ -157,6 +157,35 @@ export async function assessReflection(dish,reflection){
 }
 
 
+// D-051: interpretazione del linguaggio naturale negli stati con un piccolo insieme FISSO di
+// scelte valide (proposal, mode, dplus, difficulty_choice), come fallback quando le regole
+// lessicali scritte a mano (n.includes('...')) non riconoscono il messaggio. Non è generazione
+// libera: il modello sceglie SOLO tra le chiavi passate in `options`, mai testo proprio — resta
+// coerente con D-012 (struttura e politiche esterne e vincolanti, il modello non decide da solo
+// cosa fare). Evidenza che ha portato a questa funzione: il progettista ha segnalato che il bot
+// "si blocca spesso" perché capisce solo frasi che ricalcano esattamente le parole previste,
+// mentre un modo diverso di dire la stessa cosa (es. "non mi convincono, dammene altre" invece
+// di "altre proposte") veniva scartato. Restituisce la chiave scelta, o null se il modello non è
+// disponibile, la chiamata fallisce, o il messaggio non corrisponde con ragionevole certezza a
+// nessuna opzione — mai una chiave inventata fuori dall'elenco passato.
+export async function classifyIntent(text,options){
+  if(!labAvailable())return null;
+  const keys=options.map(o=>o.key);
+  const schema={type:'object',additionalProperties:false,required:['choice'],properties:{choice:{type:'string',enum:[...keys,'nessuna']}}};
+  const optionsText=options.map(o=>`- ${o.key}: ${o.description}`).join('\n');
+  const input=`Messaggio dell'utente: "${text}"\n\nOpzioni valide (scegli in base al SIGNIFICATO del messaggio, non alle parole esatte usate):\n${optionsText}\n- nessuna: il messaggio non corrisponde con ragionevole certezza a nessuna delle opzioni sopra`;
+  const body={model:process.env.OPENAI_MODEL||'gpt-5-mini',reasoning:{effort:'low'},store:false,instructions:'Classifichi un messaggio breve di chat in una lista chiusa di intenti possibili. Rispondi solo con la chiave esatta di una delle opzioni elencate, o "nessuna" se non corrisponde a nessuna con ragionevole certezza. Non inventare mai una chiave che non è nell\'elenco.',input,text:{format:{type:'json_schema',name:'tavola_intent_classification',strict:true,schema}}};
+  try{
+    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify(body)});
+    if(!response.ok)return null;
+    const data=await response.json();
+    const outputText=data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text||data.output_text;
+    if(!outputText)return null;
+    const parsed=JSON.parse(outputText);
+    return keys.includes(parsed.choice)?parsed.choice:null;
+  }catch(e){return null}
+}
+
 export async function answerCookingDoubt(dish,step,doubt){
   const fallback=step.help||'Non riesco a rispondere in modo specifico ora: prosegui pure con il passaggio corrente.';
   if(!labAvailable())return fallback;

@@ -935,7 +935,7 @@ test('difficulty_choice: "non mi convincono" viene riconosciuto come richiesta d
   }
 });
 
-test('difficulty_choice: un testo non riconosciuto non chiama il laboratorio e rimanda ai tre pulsanti, menzionando "altre proposte" (D-050)', async () => {
+test('difficulty_choice: un testo non riconosciuto lessicalmente passa a classifyIntent (D-051); se anche quello non trova nulla, rimanda ai tre pulsanti (D-050)', async () => {
   installFetchMock();
   try {
     const u = newUser('otherideas3', 'Tester');
@@ -943,8 +943,9 @@ test('difficulty_choice: un testo non riconosciuto non chiama il laboratorio e r
     await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
     queueResponse(threeIdeas());
     await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
-    // Nessuna risposta in coda: se il motore provasse comunque a chiamare il laboratorio,
-    // il test fallirebbe con "mock fetch: nessuna risposta in coda".
+    // D-051: ora un testo non riconosciuto lessicalmente passa comunque dal laboratorio prima di
+    // arrendersi — mock di una classificazione "nessuna" (il modello non ha trovato una corrispondenza).
+    queueResponse({ output_text: JSON.stringify({ choice: 'nessuna' }) });
     const out = await handle(u, { text: 'boh non saprei' });
     assert.equal(u.state, 'difficulty_choice');
     assert.match(out.text, /altre proposte/i);
@@ -958,9 +959,30 @@ test('difficulty_choice: un testo non riconosciuto non chiama il laboratorio e r
   }
 });
 
+test('difficulty_choice: classifyIntent riconosce una formulazione libera che nessuna regola lessicale prevedeva (D-051)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('otherideas4', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    // Nessuna parola lessicale prevista ("semplice"/"tecnico"/"gourmet"/"altre proposte"...), ma
+    // il significato è chiaro: vuole la prima direzione. Mock della classificazione AI.
+    queueResponse({ output_text: JSON.stringify({ choice: 'simple' }) });
+    queueResponse(validLabDish());
+    const out = await handle(u, { text: 'la prima mi ispira di più, andiamo con quella' });
+    assert.equal(u.context.difficulty, 'simple');
+    assert.equal(u.state, 'proposal');
+    assert.match(out.text, /Zucca in due cotture con salvia fritta/);
+  } finally {
+    restoreFetch();
+  }
+});
+
 // --- D-050: willCallLab, usata da server.mjs per decidere se mostrare "sto pensando" --
 
-test('willCallLab: vero solo quando il messaggio sceglierà un livello o chiederà altre proposte (D-050)', async () => {
+test('willCallLab in difficulty_choice: vero per qualunque messaggio tranne un intent di riavvio (D-050/D-051)', async () => {
   installFetchMock();
   try {
     const u = newUser('willcalllab1', 'Tester');
@@ -972,14 +994,146 @@ test('willCallLab: vero solo quando il messaggio sceglierà un livello o chieder
 
     assert.equal(willCallLab(u, 'tecnico'), true);
     assert.equal(willCallLab(u, 'dammi altre proposte'), true);
-    assert.equal(willCallLab(u, 'boh non saprei'), false);
+    // D-051: un testo non riconosciuto lessicalmente ora passa comunque da classifyIntent, quindi
+    // chiama davvero il laboratorio (prima di D-051 non lo faceva: cfr. EVIDENCE.md).
+    assert.equal(willCallLab(u, 'boh non saprei'), true);
     assert.equal(willCallLab(u, 'ricominciamo da capo'), false); // isIntentChoice: va a confirm_restart, non al laboratorio
   } finally {
     restoreFetch();
   }
 });
 
-test('willCallLab: sempre falso fuori da difficulty_choice (D-050)', () => {
+test('willCallLab in proposal/mode/dplus: vero solo quando il messaggio non è riconosciuto lessicalmente (D-051)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('willcalllab3', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    assert.equal(u.state, 'proposal');
+
+    assert.equal(willCallLab(u, 'mi piace'), false); // lessicale, risposta istantanea
+    assert.equal(willCallLab(u, 'perfetto ci sto, andiamo'), true); // stesso intento, parole diverse
+
+    u.state = 'mode';
+    assert.equal(willCallLab(u, 'guidami'), false);
+    assert.equal(willCallLab(u, 'fammi vedere tutto subito'), true);
+
+    u.state = 'dplus';
+    assert.equal(willCallLab(u, 'una curiosità'), false);
+    assert.equal(willCallLab(u, 'fammi vedere come sto andando'), true);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('willCallLab: sempre falso in uno stato senza alcun fallback di classificazione (D-050)', () => {
   const u = newUser('willcalllab2', 'Tester');
   assert.equal(willCallLab(u, 'tecnico'), false);
+});
+
+// --- D-051: interpretazione del linguaggio naturale in proposal/mode/dplus ------------
+
+test('proposal: classifyIntent riconosce "procediamo pure" come accettazione, senza le parole lessicali previste (D-051)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('nlp-proposal1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    assert.equal(u.state, 'proposal');
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'piace' }) });
+    const out = await handle(u, { text: 'mi convince parecchio, procediamo pure' });
+    assert.equal(u.state, 'mode');
+    assert.match(out.text, /Come vuoi cucinare/i);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('proposal: se classifyIntent non trova nulla, avvisa esplicitamente invece di scivolare nel messaggio generico finale (D-051)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('nlp-proposal2', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'nessuna' }) });
+    const out = await handle(u, { text: 'asdfasdf' });
+    assert.equal(u.state, 'proposal'); // resta nella proposta, non nel fallback generico di tutta la chat
+    assert.doesNotMatch(out.text, /Dimmi dove sei/i);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('mode: classifyIntent riconosce "fammi vedere tutto subito" come modalità "leggi tutto" (D-051)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('nlp-mode1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'mi piace' }); // -> stato 'mode'
+    assert.equal(u.state, 'mode');
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'full' }) });
+    const out = await handle(u, { text: 'fammi vedere tutto subito' });
+    assert.equal(u.session.mode, 'full');
+    assert.equal(u.state, 'mode'); // resta qui finché non conferma di iniziare
+    assert.match(out.text, /Ammorbidisci la zucca/); // elenco passaggi già mostrato
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('mode: se classifyIntent non trova nulla, il comportamento resta quello prudente di prima (guidato per default) (D-051)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('nlp-mode2', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'mi piace' });
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'nessuna' }) });
+    await handle(u, { text: 'boh fai tu' });
+    assert.equal(u.session.mode, 'guided');
+    assert.equal(u.state, 'cooking');
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('dplus: classifyIntent riconosce "fammi vedere come sto andando" come richiesta del percorso (D-051)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('nlp-dplus1', 'Tester');
+    u.pendingDplus = { dueAt: new Date(Date.now() - 60 * 1000).toISOString(), dishId: 'x', text: 'Curiosità di prova.', curiosity: 'y', sessionId: 's1' };
+    dplus(u);
+    assert.equal(u.state, 'dplus');
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'percorso' }) });
+    const out = await handle(u, { text: 'fammi vedere come sto andando' });
+    assert.match(out.text, /dashboard/i);
+  } finally {
+    restoreFetch();
+  }
 });

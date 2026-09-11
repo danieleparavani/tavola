@@ -1,4 +1,4 @@
-import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt,TECHNIQUE_MAP} from './lab.mjs';
+import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt,classifyIntent,TECHNIQUE_MAP} from './lab.mjs';
 import {renderPlating,platingText} from './platingRender.mjs';
 
 // NOTA: questi tre piatti editoriali (alici, triglia in due varianti) sono gold example
@@ -80,12 +80,17 @@ export function newUser(id,name='Tester'){return {id,name,state:'new',context:{p
 // rimando ai tre pulsanti): il risultato era un "sto pensando" seguito da una risposta identica
 // a quella precedente, che sembrava un errore. Questa funzione replica solo il sottoinsieme di
 // wantsOtherDirections/indice-livello che decide se handle() chiamerà davvero il laboratorio.
+// D-051: estesa oltre 'difficulty_choice' (dove era nata in D-050) ai tre altri stati che ora
+// possono ricorrere a classifyIntent come fallback (proposal, mode, dplus). Il criterio resta lo
+// stesso: vero solo quando il messaggio, in quello stato, farà davvero partire una chiamata di
+// rete verso il laboratorio — mai per un messaggio a cui si risponde all'istante.
 export function willCallLab(user,text){
-  if(user.state!=='difficulty_choice')return false;
   const n=norm(String(text||''));
-  if(isIntentChoice(n))return false;
-  const index=n.includes('semplice')?0:n.includes('tecnico')?1:n.includes('gourmet')?2:-1;
-  return index>=0||wantsOtherDirections(n);
+  if(user.state==='difficulty_choice')return !isIntentChoice(n);
+  if(user.state==='proposal')return !isIntentChoice(n)&&!proposalMatchesLexical(n);
+  if(user.state==='mode')return !isIntentChoice(n)&&user.session?.mode!=='full'&&!modeMatchesLexical(n);
+  if(user.state==='dplus')return !dplusMatchesLexical(n);
+  return false;
 }
 
 export async function handle(user,input,{source='simulator'}={}){
@@ -95,7 +100,24 @@ export async function handle(user,input,{source='simulator'}={}){
   // In questi stati la chat non deve mai restare bloccata: qualunque nuovo messaggio riapre
   // automaticamente un nuovo capitolo, senza richiedere /start (D-021).
   const dormant=user.state==='waiting_dplus'||user.state==='dplus';
-  const isDplusFollowup=dormant&&(n.includes('d+1')||n.includes('curiosità')||n.includes('curiosita')||n.includes('percorso')||n.includes('basta cos')||n.includes('cambia orario'));
+  let isDplusFollowup=dormant&&(n.includes('d+1')||n.includes('curiosità')||n.includes('curiosita')||n.includes('percorso')||n.includes('basta cos')||n.includes('cambia orario'));
+  // D-051: in stato 'dplus' un testo che non ricalca le parole previste può comunque riferirsi al
+  // D+1 corrente formulato diversamente (es. "fammi vedere come sto andando" invece di "percorso"),
+  // oppure può essere l'inizio di una richiesta del tutto nuova (D-021: nessun capitolo deve restare
+  // bloccato). Chiediamo qui, una sola volta, al laboratorio di distinguere i due casi; se il
+  // risultato è una delle quattro azioni valide nello stato dplus lo passiamo al blocco più sotto
+  // (user.context._dplusPrecomputedChoice) per non richiamare classifyIntent una seconda volta sullo
+  // stesso testo.
+  if(user.state==='dplus'&&!isDplusFollowup&&!isIntentChoice(n)){
+    const choice=await classifyIntent(text,[
+      {key:'curiosity',description:'vuole una curiosità in più su questa esperienza'},
+      {key:'percorso',description:'vuole vedere il proprio percorso/la dashboard delle competenze'},
+      {key:'cambia_orario',description:'vuole cambiare l\'orario in cui riceve il D+1'},
+      {key:'basta',description:'non vuole nulla di più, va bene così'},
+      {key:'nuova',description:'sta chiedendo qualcosa di nuovo e diverso, non legato al D+1 di questa esperienza (per esempio vuole cucinare qualcos\'altro)'},
+    ]);
+    if(choice&&choice!=='nuova'){isDplusFollowup=true;user.context._dplusPrecomputedChoice=choice}
+  }
 
   if(n==='/start'||n==='/reset'||user.state==='new'){
     user.state='locating';user.context={people:null,time:null,ingredients:[],constraints:[],intent:null};user.session=null;event(user,'onboarding_started');
@@ -163,14 +185,25 @@ export async function handle(user,input,{source='simulator'}={}){
   }
   if(user.state==='difficulty_choice'){
     if(isIntentChoice(n))return askRestartConfirmation(user,n,'difficulty_choice')
+    const selectIdea=(idx)=>{const idea=user.context.difficultyIdeas[idx];user.context.difficulty=idea.level;user.context.selectedIdea=idea;event(user,'difficulty_selected',{level:idea.level,name:idea.name});return proposeFromLab(user,`Livello scelto: ${idea.level}. Sviluppa: ${idea.name}`)};
+    const regenerate=()=>{const previous=(user.context.difficultyIdeas||[]).map(x=>x.name).filter(Boolean);event(user,'difficulty_menu_regeneration_requested',{text,previous});user.context.raw=`${user.context.raw} — le tre proposte precedenti non convincevano (${previous.join(', ')}). Proponi tre direzioni davvero diverse, non varianti delle stesse.`;return proposeDifficultyMenu(user)};
     const index=n.includes('semplice')?0:n.includes('tecnico')?1:n.includes('gourmet')?2:-1;
-    if(index>=0){const idea=user.context.difficultyIdeas[index];user.context.difficulty=idea.level;user.context.selectedIdea=idea;event(user,'difficulty_selected',{level:idea.level,name:idea.name});return await proposeFromLab(user,`Livello scelto: ${idea.level}. Sviluppa: ${idea.name}`)}
-    if(wantsOtherDirections(n)){
-      const previous=(user.context.difficultyIdeas||[]).map(x=>x.name).filter(Boolean);
-      event(user,'difficulty_menu_regeneration_requested',{text,previous});
-      user.context.raw=`${user.context.raw} — le tre proposte precedenti non convincevano (${previous.join(', ')}). Proponi tre direzioni davvero diverse, non varianti delle stesse.`;
-      return await proposeDifficultyMenu(user);
-    }
+    if(index>=0)return await selectIdea(index);
+    if(wantsOtherDirections(n))return await regenerate();
+    // D-051: le regole lessicali sopra non hanno riconosciuto nulla — prima di arrenderci al
+    // messaggio generico, chiediamo al laboratorio di interpretare l'intento tra le sole quattro
+    // opzioni valide in questo stato (mai testo libero, cfr. commento su classifyIntent).
+    const choice=await classifyIntent(text,[
+      {key:'simple',description:'sceglie la prima direzione proposta, quella "semplice curato"'},
+      {key:'technical',description:'sceglie la seconda direzione proposta, quella "tecnico"'},
+      {key:'gourmet',description:'sceglie la terza direzione proposta, quella "gourmet"'},
+      {key:'other',description:"nessuna delle tre proposte convince così com'è, ne vuole altre diverse"},
+    ]);
+    event(user,'difficulty_intent_classified',{text,choice});
+    if(choice==='simple')return await selectIdea(0);
+    if(choice==='technical')return await selectIdea(1);
+    if(choice==='gourmet')return await selectIdea(2);
+    if(choice==='other')return await regenerate();
     return reply('Scegli una delle tre direzioni: semplice curato, tecnico oppure gourmet. Se non ti convincono, scrivimi "altre proposte" e ne preparo tre diverse.',difficultyButtons(user.context.difficultyIdeas));
   }
   if(user.state==='lab_connection_required'){
@@ -188,10 +221,32 @@ export async function handle(user,input,{source='simulator'}={}){
   if(user.state==='proposal'){
     if(isIntentChoice(n))return askRestartConfirmation(user,n,'proposal')
     const d=currentDish(user);
-    if(n.includes('fonti')||n.includes('scelte')){const rows=(d.evidence||[]).map(e=>`**${e.status}** — ${e.claim}\n${e.sourceTitle}: ${e.sourceUrl}`).join('\n\n');event(user,'sources_opened',{dishId:d.id});return reply(rows||'Questa esperienza editoriale non ha ancora una bibliografia esposta.',buttons.proposal,{parseMode:'Markdown'})}
-    if(n.includes('lista')){event(user,'shopping_list_requested');return reply(`Lista essenziale:\n${d.shopping.map(x=>'• '+x).join('\n')}\n\nQuando hai tutto, scrivi “ci sono”.`,[['🏠 Ci sono']]);}
-    if(n.includes('altra')){user.state='proposal_feedback';event(user,'proposal_rejected',{dishId:d.id});return reply('Posso cambiare direzione, ma prima dimmi cosa non ti convince: tecnica, tempo, ingredienti o gusto. Non genero un’alternativa casuale.')}
-    if(n.includes('piace')||n.includes('ci sono')){user.state='mode';event(user,'proposal_accepted',{dishId:d.id});return reply('Come vuoi cucinare stasera?',buttons.mode)}
+    const openFonti=()=>{const rows=(d.evidence||[]).map(e=>`**${e.status}** — ${e.claim}\n${e.sourceTitle}: ${e.sourceUrl}`).join('\n\n');event(user,'sources_opened',{dishId:d.id});return reply(rows||'Questa esperienza editoriale non ha ancora una bibliografia esposta.',buttons.proposal,{parseMode:'Markdown'})};
+    const openLista=()=>{event(user,'shopping_list_requested');return reply(`Lista essenziale:\n${d.shopping.map(x=>'• '+x).join('\n')}\n\nQuando hai tutto, scrivi “ci sono”.`,[['🏠 Ci sono']])};
+    const rejectProposal=()=>{user.state='proposal_feedback';event(user,'proposal_rejected',{dishId:d.id});return reply('Posso cambiare direzione, ma prima dimmi cosa non ti convince: tecnica, tempo, ingredienti o gusto. Non genero un’alternativa casuale.')};
+    const acceptProposal=()=>{user.state='mode';event(user,'proposal_accepted',{dishId:d.id});return reply('Come vuoi cucinare stasera?',buttons.mode)};
+    if(proposalMatchesLexical(n)){
+      if(n.includes('fonti')||n.includes('scelte'))return openFonti();
+      if(n.includes('lista'))return openLista();
+      if(n.includes('altra'))return rejectProposal();
+      return acceptProposal();
+    }
+    // D-051: nessuna delle frasi previste ha matchato — prima del silenzio (che lasciava
+    // proseguire il messaggio fino al fallback generico finale, disorientante a metà proposta),
+    // chiediamo al laboratorio quale delle quattro azioni valide qui corrisponde all'intento.
+    const choice=await classifyIntent(text,[
+      {key:'fonti',description:'vuole vedere le fonti e le scelte tecniche dietro la proposta'},
+      {key:'lista',description:'vuole la lista della spesa per questo piatto'},
+      {key:'altra',description:'questa proposta non convince, ne vuole un\'altra'},
+      {key:'piace',description:'la proposta va bene, vuole procedere / ha già tutti gli ingredienti'},
+    ]);
+    event(user,'proposal_intent_classified',{text,choice});
+    if(choice==='fonti')return openFonti();
+    if(choice==='lista')return openLista();
+    if(choice==='altra')return rejectProposal();
+    if(choice==='piace')return acceptProposal();
+    event(user,'proposal_intent_unrecognized',{text});
+    return reply('Non ho capito se questa proposta ti convince: dimmelo, oppure chiedimi la lista della spesa, le fonti, o un\'altra idea.',buttons.proposal);
   }
   if(user.state==='proposal_feedback'){
     // D-037: "Altra idea" chiedeva il motivo del rifiuto ma non riportava mai lo stato fuori da
@@ -206,7 +261,21 @@ export async function handle(user,input,{source='simulator'}={}){
   if(user.state==='mode'){
     if(isIntentChoice(n))return askRestartConfirmation(user,n,'mode')
     if(user.session.mode==='full'){user.state='cooking';return cookingReply(user)}
-    const d=currentDish(user);user.session.mode=n.includes('leggere')?'full':n.includes('critici')?'essential':'guided';event(user,'guidance_mode_selected',{mode:user.session.mode});
+    const d=currentDish(user);
+    let mode=n.includes('leggere')?'full':n.includes('critici')?'essential':n.includes('guidami')||n.includes('guida')?'guided':null;
+    if(!mode){
+      // D-051: prima nessun messaggio non riconosciuto veniva mai fermato qui — finiva sempre,
+      // silenziosamente, in modalità guidata, anche quando l'utente aveva chiaramente chiesto di
+      // leggere tutto o di vedere solo i punti critici con parole diverse da quelle previste.
+      const choice=await classifyIntent(text,[
+        {key:'full',description:'vuole leggere subito tutta la ricetta, tutti i passaggi in una volta'},
+        {key:'essential',description:'vuole solo i punti critici, senza essere guidato passo per passo'},
+        {key:'guided',description:'vuole essere guidato passo dopo passo durante la cucina'},
+      ]);
+      event(user,'mode_intent_classified',{text,choice});
+      mode=choice==='full'?'full':choice==='essential'?'essential':'guided';
+    }
+    user.session.mode=mode;event(user,'guidance_mode_selected',{mode:user.session.mode});
     if(user.session.mode==='full')return reply(d.steps.map((s,i)=>`**${i+1}. ${s.title}**\n${s.action}`).join('\n\n'),[['👣 Inizia la guida']],{parseMode:'Markdown'});
     user.state='cooking';return cookingReply(user);
   }
@@ -231,7 +300,36 @@ export async function handle(user,input,{source='simulator'}={}){
     return reply(`${assessment}\n\n${user.session.isSimulation?'Sessione registrata come *simulazione*: non aggiorna la competenza.':'Ho registrato il principio come *introdotto*, non come acquisito.'}\n\nIl D+1 arriverà domattina. Questo capitolo è chiuso: quando vuoi iniziarne un altro, dimmi semplicemente dove sei.`,buttons.start,{parseMode:'Markdown'});
   }
   if(user.state==='waiting_dplus'&&n.includes('d+1'))return dplus(user);
-  if(user.state==='dplus'){const d=currentDish(user);if(n.includes('curiosità')||n.includes('curiosita')){event(user,'dplus_curiosity_opened',{dishId:d?.id});return reply(d?.curiosity||'Nessuna curiosità aggiuntiva disponibile per questa esperienza.',buttons.dplus)}if(n.includes('percorso'))return reply('Apri la dashboard: /dashboard',[['🧭 Apri dashboard']]);if(n.includes('cambia orario')){user.state='awaiting_dplus_time';event(user,'dplus_time_change_started',{});return reply('A che ora preferisci ricevere il prossimo D+1? Scrivimi un orario, ad esempio "8:00" oppure "alle 9".')}return reply('Perfetto. Nessun compito per oggi.')}
+  if(user.state==='dplus'){
+    const d=currentDish(user);
+    const openCuriosity=()=>{event(user,'dplus_curiosity_opened',{dishId:d?.id});return reply(d?.curiosity||'Nessuna curiosità aggiuntiva disponibile per questa esperienza.',buttons.dplus)};
+    const openPercorso=()=>reply('Apri la dashboard: /dashboard',[['🧭 Apri dashboard']]);
+    const startTimeChange=()=>{user.state='awaiting_dplus_time';event(user,'dplus_time_change_started',{});return reply('A che ora preferisci ricevere il prossimo D+1? Scrivimi un orario, ad esempio "8:00" oppure "alle 9".')};
+    if(dplusMatchesLexical(n)){
+      if(n.includes('curiosità')||n.includes('curiosita'))return openCuriosity();
+      if(n.includes('percorso'))return openPercorso();
+      return startTimeChange();
+    }
+    // D-051: prima qualunque testo non riconosciuto veniva silenziosamente trattato come "basta
+    // così" — corretto per un vero "no grazie", fuorviante se l'utente aveva chiesto la stessa
+    // cosa con parole diverse (es. "fammi vedere come sto andando" invece di "percorso"). Se la
+    // classificazione è già stata fatta più sopra in handle() (per decidere se restava un
+    // "followup" del D+1 o l'inizio di un capitolo nuovo), riusiamo quel risultato invece di
+    // richiamare classifyIntent una seconda volta sullo stesso testo.
+    const precomputed=user.context._dplusPrecomputedChoice;
+    if(precomputed!==undefined)delete user.context._dplusPrecomputedChoice;
+    const choice=precomputed!==undefined?precomputed:await classifyIntent(text,[
+      {key:'curiosity',description:'vuole una curiosità in più su questa esperienza'},
+      {key:'percorso',description:'vuole vedere il proprio percorso/la dashboard delle competenze'},
+      {key:'cambia_orario',description:'vuole cambiare l\'orario in cui riceve il D+1'},
+      {key:'basta',description:'non vuole nulla di più, va bene così'},
+    ]);
+    event(user,'dplus_intent_classified',{text,choice});
+    if(choice==='curiosity')return openCuriosity();
+    if(choice==='percorso')return openPercorso();
+    if(choice==='cambia_orario')return startTimeChange();
+    return reply('Perfetto. Nessun compito per oggi.')
+  }
   if(user.state==='awaiting_dplus_time'){
     const t=parseClockTime(text);
     if(!t){event(user,'dplus_time_change_failed',{text});return reply('Non ho riconosciuto l\'orario. Prova con un formato come "8:00" oppure "alle 9".')}
@@ -316,6 +414,14 @@ function wantsOtherDirections(n){
   if(n.includes('non mi piac')||n.includes('non mi convinc')||n.includes('non va bene')||n.includes('nessuna'))return true;
   return false;
 }
+// D-051: predicati di puro riconoscimento lessicale, condivisi tra il dispatch in handle() (dove
+// decidono se agire subito o passare la mano a classifyIntent) e willCallLab() in server.mjs
+// (dove decidono se mostrare "sto pensando" prima di una vera chiamata al laboratorio). Tenerli
+// come funzioni singole invece di ripetere le stesse condizioni in due punti evita che i due usi
+// finiscano per disallinearsi nel tempo.
+function proposalMatchesLexical(n){return n.includes('fonti')||n.includes('scelte')||n.includes('lista')||n.includes('altra')||n.includes('piace')||n.includes('ci sono')}
+function modeMatchesLexical(n){return n.includes('leggere')||n.includes('critici')||n.includes('guidami')||n.includes('guida')}
+function dplusMatchesLexical(n){return n.includes('curiosità')||n.includes('curiosita')||n.includes('percorso')||n.includes('cambia orario')}
 function isIntentChoice(n){if(n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo'))return true;if(n.includes('nuova richiesta')||n.includes('altra richiesta')||n.includes('resett'))return true;if(n.includes('ricominc')||n.includes('da capo')||n.includes('ripart'))return true;if((n.includes('cambi')||n.includes('nuov')||n.includes('altra')||n.includes('altro'))&&(n.includes('ricetta')||n.includes('piatto')))return true;return false}
 // Correzione di un singolo dato già raccolto (persone o tempo), distinta da isIntentChoice:
 // lì l'utente vuole abbandonare il piatto e ricominciare da capo (con conferma, D-036/D-037);
