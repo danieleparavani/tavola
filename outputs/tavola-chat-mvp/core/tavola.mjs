@@ -105,6 +105,9 @@ export function willCallLab(user,text){
   // delle risposte lessicali immediate (perché/dubbio/non è cambiato/risolto/avanti-inizia/indietro).
   // D-056: cookingInstantMatchesLexical ora include anche goBackMatchesLexical, quindi questa
   // condizione resta corretta senza modifiche dirette qui.
+  // D-057: la nuova opzione 'ricomincia' nella classificazione non cambia questa condizione — un
+  // riavvio riconosciuto per significato passa comunque da una chiamata al laboratorio prima di
+  // arrivare ad askRestartConfirmation, quindi "sto pensando" resta corretto.
   if(user.state==='cooking')return !isIntentChoice(n)&&!cookingInstantMatchesLexical(n);
   return false;
 }
@@ -361,14 +364,24 @@ export async function handle(user,input,{source='simulator'}={}){
     // D-056: aggiunta una terza opzione "indietro" alla stessa classificazione, così anche una
     // richiesta di tornare indietro formulata senza le parole lessicali previste viene riconosciuta
     // per significato, non solo scartata verso il dubbio.
+    // D-057: isIntentChoice sopra riconosce già molte formulazioni esplicite di riavvio
+    // ("ricominciamo da capo", "un'altra ricetta"), ma è puramente lessicale (stessa famiglia di
+    // limiti di D-051): una richiesta di abbandonare il piatto formulata in modo diverso ("non ce
+    // la faccio più con questo, voglio provare qualcos'altro di completamente diverso") non la
+    // matcha e finiva qui, classificata a forza tra avanti/indietro/dubbio — nessuno dei quali è
+    // corretto. Aggiunta una quarta opzione, così anche un riavvio formulato diversamente viene
+    // riconosciuto per significato e passa comunque dalla conferma di sicurezza (askRestartConfirmation,
+    // D-043), non un riavvio silenzioso.
     const advanceChoice=await classifyIntent(text,[
       {key:'avanti',description:'ha finito questo passaggio e vuole passare al successivo'},
       {key:'indietro',description:'vuole tornare al passaggio precedente, quello di prima, non a quello attuale'},
-      {key:'dubbio',description:'ha un dubbio, una domanda, un problema o un\'osservazione sul passaggio corrente, non vuole ancora avanzare né tornare indietro'},
+      {key:'ricomincia',description:'vuole abbandonare questo piatto e ricominciare tutto da capo con qualcos\'altro, non tornare a un passaggio precedente di questa stessa ricetta'},
+      {key:'dubbio',description:'ha un dubbio, una domanda, un problema o un\'osservazione sul passaggio corrente, non vuole ancora avanzare né tornare indietro né ricominciare da capo'},
     ]);
     event(user,'cooking_intent_classified',{text,choice:advanceChoice});
     if(advanceChoice==='avanti')return advanceStep(user,d);
     if(advanceChoice==='indietro')return goBackStep(user,d);
+    if(advanceChoice==='ricomincia')return askRestartConfirmation(user,n,'cooking');
     event(user,'doubt_asked',{step:user.session.step});const doubtAnswer=await answerCookingDoubt(d,s,text);event(user,'doubt_answered',{step:user.session.step});return reply(doubtAnswer,[['✅ Risolto','🆘 Non è cambiato'],['🔬 Perché?']]);
   }
   if(user.state==='closure'){user.session.answers.result=text;user.session.isSimulation=n.includes('simulazione')||n.includes('non l’ho cucinato')||n.includes('non l ho cucinato');user.state='reflection';event(user,'result_reported',{answer:text,isSimulation:user.session.isSimulation});return reply(user.session.isSimulation?'Questa prova sarà registrata come simulazione dell’interfaccia, non come esperienza culinaria. Quale punto della proposta cambieresti?':'Una sola cosa: cosa rifaresti uguale o cambieresti?')}

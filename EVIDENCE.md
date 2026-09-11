@@ -1007,3 +1007,25 @@ Quattro nuovi test in `test/engine.test.mjs`: spostamento reale del passaggio vi
 ### Limite dichiarato
 
 Si torna indietro di un solo passaggio alla volta, non a un passaggio arbitrario indicato per numero. Non c'è invalidazione del tempo trascorso registrato per un passaggio ripetuto dopo un ritorno indietro. Non ancora verificato dal vivo su Telegram.
+
+## Verifica di copertura — l'opzione di ricominciare durante la cucina guidata (11 settembre 2026)
+
+### Evidenza osservata
+
+Subito dopo la conferma del deploy di D-056, il progettista ha scritto: "deve esserci anche l'opzione per ricominciare".
+
+### Interpretazione
+
+L'opzione esisteva già (D-036–D-043, `isIntentChoice` + `askRestartConfirmation`), ma solo per formulazioni lessicali esplicite. Nello stato `cooking`, dopo l'introduzione della classificazione avanti/indietro/dubbio (D-055/D-056), una richiesta di riavvio formulata diversamente veniva forzata in una di quelle tre categorie invece di essere riconosciuta come riavvio.
+
+### Decisione
+
+Vedi DECISIONS.md, D-057: quarta opzione `ricomincia` nella stessa classificazione, che porta comunque alla domanda di conferma già esistente prima di abbandonare il piatto.
+
+### Verifica
+
+Un nuovo test in `test/engine.test.mjs`: riconoscimento del riavvio per significato, conferma richiesta, riavvio effettivo fino a `collecting_people`. Suite completa: 118/118 test superati.
+
+### Limite dichiarato
+
+La correzione riguarda solo lo stato `cooking`. Lo stesso gap (riavvio riconosciuto solo lessicalmente) resta negli altri stati con un piatto in corso, non ancora estesi per coerenza. Non ancora verificato dal vivo su Telegram.

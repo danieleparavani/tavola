@@ -660,6 +660,34 @@ test('cooking: chiedere di tornare indietro dal primo passaggio non retrocede e 
   }
 });
 
+test('cooking: una richiesta di ricominciare da capo formulata senza le parole lessicali previste viene comunque riconosciuta e chiede conferma prima di riavviare (D-057)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('cooking-restart-nlp1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'ci sono' });
+    await handle(u, { text: 'Guidami' }); // mode -> cooking, step 0
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'ricomincia' }) });
+    const out = await handle(u, { text: 'non ce la faccio più con questo, voglio provare qualcosa di completamente diverso' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(out.text, /Sei sicuro di voler ricominciare/);
+    assert.ok(u.events.some(e => e.type === 'cooking_intent_classified' && e.payload.choice === 'ricomincia'));
+    assert.ok(!u.events.some(e => e.type === 'doubt_asked'));
+
+    // conferma: deve davvero riavviare, non restare bloccato
+    const confirmed = await handle(u, { text: 'sì, ricomincia' });
+    assert.equal(u.state, 'collecting_people');
+  } finally {
+    restoreFetch();
+  }
+});
+
 test('willCallLab in cooking: "indietro"/"precedente" sono risposte lessicali immediate, non chiamano il laboratorio (D-056)', async () => {
   installFetchMock();
   try {
