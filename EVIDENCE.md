@@ -846,4 +846,10 @@ Nuovo `test/platingRender.test.mjs` (7 test: firma PNG valida, determinismo, tut
 
 ### Limite dichiarato
 
-Il motore di disegno è volutamente semplice (forme geometriche piene, nessuna resa realistica): è uno schema, non una fotografia, e va presentato come tale. Non verificato dal vivo su Telegram (nessuna chiamata reale al laboratorio in questa sessione). Non verificata la leggibilità reale dello schema per un utente, né se l'insieme enumerato di forme e posizioni sia abbastanza espressivo per piatti molto diversi tra loro: da osservare nel micro-pilot (NEXT.md, Fase 2). Non ancora deployato sulla VM di produzione.
+Il motore di disegno è volutamente semplice (forme geometriche piene, nessuna resa realistica): è uno schema, non una fotografia, e va presentato come tale. Non verificata la leggibilità reale dello schema per un utente, né se l'insieme enumerato di forme e posizioni sia abbastanza espressivo per piatti molto diversi tra loro: da osservare nel micro-pilot (NEXT.md, Fase 2).
+
+### Deploy in produzione (11 settembre 2026)
+
+Stesso flusso delle volte precedenti: push diretto da questa sessione bloccato dal proxy git ("repository non nel set autorizzato"), bundle git (`tavola-D048.bundle`) preparato, consegnato al progettista e scritto nella sua cartella locale connessa. Applicato da terminale SSH sulla VM: caricamento del file, `git fetch`/`git merge` (fast-forward pulito `0672b42..065e508`, 13 file), `git push origin main` (riuscito), `npm test` sulla VM (91/91 superati), `sudo systemctl restart tavola` e verifica `sudo systemctl status tavola` → `active (running)`, log di avvio regolare (`Tavola: http://localhost:4310`). Verificato passo per passo con screenshot del terminale a ogni fase, stesso metodo delle sessioni precedenti.
+
+Resta da verificare dal vivo, con una vera chiamata al laboratorio generativo, che il campo `plating` venga compilato in modo coerente con la ricetta reale e che immagine e testo arrivino correttamente su Telegram.
