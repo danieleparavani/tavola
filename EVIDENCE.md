@@ -919,3 +919,25 @@ Interrogato con una domanda diretta su tre alternative (correggere solo il punto
 ### Limite dichiarato
 
 Ogni fallback aggiunge una chiamata di rete solo quando le regole lessicali non bastano; l'accuratezza della classificazione non è stata misurata su un campione ampio di italiano reale, solo sui casi discussi col progettista. Alcuni stati (raccolta persone/tempo/ingredienti, conferma di riavvio) restano intenzionalmente solo a regole perché l'input atteso è un dato preciso, non un intento tra pochi possibili. Non ancora verificato dal vivo su Telegram.
+
+## Failure osservato su Telegram reale — un errore segnalato in modalità "leggi tutto" viene ignorato, la guida riparte dal primo passaggio (11 settembre 2026)
+
+### Evidenza osservata
+
+Il progettista ha scelto "leggi tutto", letto l'elenco completo dei passaggi di una ricetta proposta, individuato quello che gli sembrava un errore e ha scritto un messaggio a riguardo invece di premere "Inizia la guida". Ha riferito: "adesso la ricetta che mi ha proposto secondo me aveva un errore ho scritto ma lui è ripartito dalla ricetta. Non va bene deve essere una AI che risponde cercando innanzitutto le risposte negli archivi, non deve essere un programma con risposte preconfezionate".
+
+### Interpretazione
+
+Non un'imprecisione di formulazione come nei casi precedenti (D-051), ma un buco completo: nel blocco per lo stato `mode`, una volta scelta la modalità "leggi tutto" (`session.mode==='full'`), il codice interpretava incondizionatamente qualunque messaggio successivo come conferma di inizio e avviava la guida dal primo passaggio — senza distinguere un vero segnale di inizio da un testo qualsiasi, e senza mai interpellare il laboratorio. Il ramo corrispondente di `willCallLab` restituiva sempre `false`, a conferma che quel percorso non era mai stato progettato per chiamare l'AI. Un test esistente (D-051) documentava già nel proprio commento l'intento corretto ("resta qui finché non conferma di iniziare") ma non esercitava mai un secondo messaggio dopo la lettura completa, quindi il percorso restava scoperto.
+
+### Decisione
+
+Vedi DECISIONS.md, D-053: solo un segnale lessicale esplicito ("inizia") avvia la guida da quello stato; qualunque altro testo viene passato a una nuova funzione del laboratorio (`answerRecipeQuestion`), con l'intera ricetta come contesto, con istruzioni esplicite di riconoscere un errore reale segnalato dall'utente e spiegarne la correzione, non di ripetere il passaggio.
+
+### Verifica
+
+Due nuovi test in `test/engine.test.mjs` (uno end-to-end sulla segnalazione di un errore, uno di asserzioni dirette su `willCallLab`). Suite completa: 109/109 test superati.
+
+### Limite dichiarato
+
+Il segnale di inizio resta lessicale, senza fallback `classifyIntent` come negli altri stati — coerente con lo stesso limite già accettato per "avanti"/"inizia" nello stato `cooking`. Nessun controllo editoriale verifica che la correzione proposta dal laboratorio sia davvero corretta. Non ancora verificato dal vivo su Telegram.

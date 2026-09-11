@@ -1,4 +1,4 @@
-import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt,classifyIntent,TECHNIQUE_MAP} from './lab.mjs';
+import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt,answerRecipeQuestion,classifyIntent,TECHNIQUE_MAP} from './lab.mjs';
 import {renderPlating,platingText} from './platingRender.mjs';
 
 // NOTA: questi tre piatti editoriali (alici, triglia in due varianti) sono gold example
@@ -88,7 +88,11 @@ export function willCallLab(user,text){
   const n=norm(String(text||''));
   if(user.state==='difficulty_choice')return !isIntentChoice(n);
   if(user.state==='proposal')return !isIntentChoice(n)&&!proposalMatchesLexical(n);
-  if(user.state==='mode')return !isIntentChoice(n)&&user.session?.mode!=='full'&&!modeMatchesLexical(n);
+  // D-053: quando mode==='full' (ricetta già letta per intero, in attesa del segnale di inizio),
+  // un testo che non è quel segnale ora chiama davvero il laboratorio (answerRecipeQuestion) —
+  // prima veniva sempre scartato qui (mode==='full' rendeva l'espressione falsa a prescindere),
+  // che è esattamente il comportamento sbagliato corretto in handle().
+  if(user.state==='mode')return !isIntentChoice(n)&&(user.session?.mode==='full'?!fullReadStartMatchesLexical(n):!modeMatchesLexical(n));
   if(user.state==='dplus')return !dplusMatchesLexical(n);
   return false;
 }
@@ -260,7 +264,21 @@ export async function handle(user,input,{source='simulator'}={}){
   }
   if(user.state==='mode'){
     if(isIntentChoice(n))return askRestartConfirmation(user,n,'mode')
-    if(user.session.mode==='full'){user.state='cooking';return cookingReply(user)}
+    if(user.session.mode==='full'){
+      if(fullReadStartMatchesLexical(n)){user.state='cooking';return cookingReply(user)}
+      // D-053: prima, qualunque testo scritto qui — anche una domanda o la segnalazione di un
+      // errore reale nella ricetta appena letta — veniva ignorato e faceva ripartire la guida dal
+      // primo passaggio senza mai consultare il laboratorio (il progettista: "ho scritto ma lui è
+      // ripartito dalla ricetta"). Ora un testo che non è il segnale esplicito di inizio viene
+      // trattato come una domanda vera, a cui risponde il laboratorio con la ricetta intera come
+      // contesto — non una risposta preconfezionata — e resta in questo stato finché l'utente non
+      // conferma di voler iniziare.
+      const dish=currentDish(user);
+      event(user,'recipe_question_asked',{text});
+      const answer=await answerRecipeQuestion(dish,text);
+      event(user,'recipe_question_answered',{text});
+      return reply(answer,[['👣 Inizia la guida']]);
+    }
     const d=currentDish(user);
     let mode=n.includes('leggere')?'full':n.includes('critici')?'essential':n.includes('guidami')||n.includes('guida')?'guided':null;
     if(!mode){
@@ -425,6 +443,11 @@ function wantsOtherDirections(n){
 // finiscano per disallinearsi nel tempo.
 function proposalMatchesLexical(n){return n.includes('fonti')||n.includes('scelte')||n.includes('lista')||n.includes('altra')||n.includes('piace')||n.includes('ci sono')}
 function modeMatchesLexical(n){return n.includes('leggere')||n.includes('critici')||n.includes('guidami')||n.includes('guida')}
+// D-053: usata solo dopo che l'utente ha già scelto "leggi tutto" (session.mode==='full') e sta
+// guardando l'elenco completo dei passaggi, per riconoscere il segnale esplicito di voler
+// iniziare a cucinare — distinto da modeMatchesLexical, che serve alla scelta iniziale fra le tre
+// modalità e il cui 'guida' matcherebbe anche "Inizia la guida" per un motivo estraneo.
+function fullReadStartMatchesLexical(n){return n.includes('inizia')}
 function dplusMatchesLexical(n){return n.includes('curiosità')||n.includes('curiosita')||n.includes('percorso')||n.includes('cambia orario')}
 function isIntentChoice(n){if(n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo'))return true;if(n.includes('nuova richiesta')||n.includes('altra richiesta')||n.includes('resett'))return true;if(n.includes('ricominc')||n.includes('da capo')||n.includes('ripart'))return true;if((n.includes('cambi')||n.includes('nuov')||n.includes('altra')||n.includes('altro'))&&(n.includes('ricetta')||n.includes('piatto')))return true;return false}
 // Correzione di un singolo dato già raccolto (persone o tempo), distinta da isIntentChoice:

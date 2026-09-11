@@ -1024,6 +1024,13 @@ test('willCallLab in proposal/mode/dplus: vero solo quando il messaggio non è r
     assert.equal(willCallLab(u, 'guidami'), false);
     assert.equal(willCallLab(u, 'fammi vedere tutto subito'), true);
 
+    // D-053: una volta scelto mode==='full' (ricetta letta per intero), solo il segnale esplicito
+    // di inizio ("inizia") evita la chiamata al laboratorio — qualunque altro testo, prima
+    // scartato a prescindere qui, ora corrisponde davvero a una chiamata reale in handle().
+    u.session.mode = 'full';
+    assert.equal(willCallLab(u, 'Inizia la guida'), false);
+    assert.equal(willCallLab(u, 'secondo me al passaggio 2 manca un pezzo'), true);
+
     u.state = 'dplus';
     assert.equal(willCallLab(u, 'una curiosità'), false);
     assert.equal(willCallLab(u, 'fammi vedere come sto andando'), true);
@@ -1098,6 +1105,39 @@ test('mode: classifyIntent riconosce "fammi vedere tutto subito" come modalità 
     assert.equal(u.session.mode, 'full');
     assert.equal(u.state, 'mode'); // resta qui finché non conferma di iniziare
     assert.match(out.text, /Ammorbidisci la zucca/); // elenco passaggi già mostrato
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('mode (full): un testo diverso da "inizia" dopo aver letto tutta la ricetta chiama davvero il laboratorio, non fa ripartire la guida (D-053)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('nlp-mode-full1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'mi piace' }); // -> stato 'mode'
+    await handle(u, { text: 'fammi leggere tutto' }); // -> mode 'full', resta in stato 'mode'
+    assert.equal(u.session.mode, 'full');
+
+    // Prima di D-053 questo messaggio veniva ignorato e faceva ripartire la guida dal primo
+    // passaggio (user.state='cooking', session.step=0) senza mai consultare il laboratorio.
+    queueResponse({ output_text: 'Hai ragione: nel passaggio 2 manca l\'indicazione di scolare bene la zucca prima di frullarla, altrimenti la vellutata risulta troppo liquida.' });
+    const out = await handle(u, { text: 'secondo me al passaggio 2 manca un pezzo, avete dimenticato di dire di scolare la zucca' });
+    assert.equal(u.state, 'mode'); // non è ripartito dalla ricetta: resta in attesa del segnale di inizio
+    assert.equal(u.session.step, 0); // la guida non è avanzata
+    assert.match(out.text, /scolare/); // risposta reale del laboratorio, non un testo preconfezionato
+    assert.ok(u.events.some(e => e.type === 'recipe_question_asked'));
+    assert.ok(u.events.some(e => e.type === 'recipe_question_answered'));
+
+    // Il segnale esplicito di inizio funziona ancora normalmente.
+    const started = await handle(u, { text: 'Inizia la guida' });
+    assert.equal(u.state, 'cooking');
+    assert.match(started.text, /Ammorbidisci la zucca/);
   } finally {
     restoreFetch();
   }
