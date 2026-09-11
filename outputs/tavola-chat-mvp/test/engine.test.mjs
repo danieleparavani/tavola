@@ -28,9 +28,9 @@ function threeIdeas() {
   return {
     output_text: JSON.stringify({
       ideas: [
-        { level: 'simple', name: 'Zucca arrosto al rosmarino', description: 'Cottura diretta, poche variabili.', principle: 'Caramellizzazione superficiale' },
-        { level: 'technical', name: 'Vellutata di zucca con crumble salato', description: 'Doppia consistenza controllata.', principle: 'Consistenza per contrasto' },
-        { level: 'gourmet', name: 'Zucca in due cotture con salvia fritta', description: 'Concentrazione del sapore in due fasi.', principle: 'Cottura in due tempi' },
+        { level: 'simple', name: 'Zucca arrosto al rosmarino', description: 'Cottura diretta, poche variabili.', principle: 'Caramellizzazione superficiale', focus: 'Prima esposizione: osserva come il calore diretto scurisce la superficie senza seccare il centro.' },
+        { level: 'technical', name: 'Vellutata di zucca con crumble salato', description: 'Doppia consistenza controllata.', principle: 'Consistenza per contrasto', focus: 'Introduce il controllo di due consistenze nello stesso piatto.' },
+        { level: 'gourmet', name: 'Zucca in due cotture con salvia fritta', description: 'Concentrazione del sapore in due fasi.', principle: 'Cottura in due tempi', focus: 'Applica su una verdura la logica di cottura in due fasi già utile su altri ingredienti.' },
       ],
     }),
   };
@@ -273,6 +273,65 @@ test('dati mancanti: non inventa persone/tempo/ingrediente, e in ciascun passagg
   assert.ok(missingEvent.payload.missing.includes('ingrediente o piatto desiderato'));
   assert.equal(missingEvent.payload.missing.includes('per quante persone'), false);
   assert.equal(missingEvent.payload.missing.includes('quanto tempo hai'), false);
+});
+
+// D-049: regressione del bug osservato su Telegram — una foto senza didascalia (testo
+// '[contenuto multimediale]', segnaposto usato da server.mjs) non deve mai essere trattata come
+// una richiesta valida di ingrediente/piatto: prima della correzione superava hasFoodRequest e
+// arrivava al laboratorio, che produceva tre "direzioni" fatte in realtà di testo di richiesta
+// di chiarimento nel campo principle (mostrato all'utente come "Tecnica: ...").
+test('foto senza didascalia: non salta alle tre direzioni, chiede di descrivere a parole', async () => {
+  const u = newUser('photo1', 'Tester');
+  await handle(u, { text: 'ciao' });
+  await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+  await handle(u, { text: '2' });
+  await handle(u, { text: '30 min' });
+  assert.equal(u.state, 'collecting_context');
+  const out = await handle(u, { text: '[contenuto multimediale]', photo: true });
+  assert.equal(u.state, 'collecting_context'); // non deve avanzare alle tre direzioni
+  assert.match(out.text, /non riesco ancora ad analizzare foto/i);
+  assert.match(out.text, /scrivimi a parole/i);
+});
+
+// --- D-049: focus pedagogico personalizzato -------------------------------------------
+
+test('proposeDifficultyMenu: senza tecniche osservate, la nota per il laboratorio dice che è una prima esposizione', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('focus1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    const out = await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    assert.equal(u.state, 'difficulty_choice');
+    assert.match(out.text, /Focus:/);
+    assert.match(out.text, /Prima esposizione/i); // dal fixture threeIdeas()
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('proposeDifficultyMenu: con una tecnica già osservata, la nota per il laboratorio la riporta con il conteggio', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('focus2', 'Tester');
+    u.techniques.mantecatura_risotto = { id: 'mantecatura_risotto', note: null, count: 2, firstAt: '2026-01-01T00:00:00Z', lastAt: '2026-02-01T00:00:00Z', simulatedOnly: false };
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    let capturedInput = null;
+    globalThis.fetch = async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      if (!capturedInput) capturedInput = body.input;
+      const next = mockQueue.shift();
+      return { ok: true, json: async () => next, text: async () => JSON.stringify(next) };
+    };
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    assert.match(capturedInput, /già praticate/);
+    assert.match(capturedInput, /2 volta\/e/);
+  } finally {
+    restoreFetch();
+  }
 });
 
 // --- tre livelli + selezione del livello ---------------------------------------------

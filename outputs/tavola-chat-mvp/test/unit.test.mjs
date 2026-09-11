@@ -94,6 +94,18 @@ test('hasFoodRequest è false su una frase priva di ingrediente/piatto', () => {
   assert.equal(hasFoodRequest('2 persone, 45 minuti'), false);
 });
 
+// D-049: regressione del bug osservato su Telegram (una foto senza didascalia produceva tre
+// "direzioni" che erano in realtà richieste di chiarimento mascherate, perché il segnaposto
+// '[contenuto multimediale]' superava questo controllo — "contenuto" e "multimediale" hanno
+// entrambe 4+ lettere e non erano nella lista delle parole da ignorare).
+test('hasFoodRequest è false sul segnaposto di contenuto multimediale senza didascalia', () => {
+  assert.equal(hasFoodRequest('[contenuto multimediale]'), false);
+});
+
+test('hasFoodRequest resta true su una richiesta reale anche se contiene parentesi quadre incidentali', () => {
+  assert.equal(hasFoodRequest('vorrei il salmone [quello che avanzato ieri]'), true);
+});
+
 // --- gate editoriale -----------------------------------------------------------------
 
 function baseDish(overrides = {}) {

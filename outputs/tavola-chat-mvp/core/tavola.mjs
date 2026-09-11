@@ -1,4 +1,4 @@
-import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt} from './lab.mjs';
+import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt,TECHNIQUE_MAP} from './lab.mjs';
 import {renderPlating,platingText} from './platingRender.mjs';
 
 // NOTA: questi tre piatti editoriali (alici, triglia in due varianti) sono gold example
@@ -136,7 +136,14 @@ export async function handle(user,input,{source='simulator'}={}){
     user.context.raw=text;user.context.ingredients=extractIngredients(n);
     event(user,'context_captured',{...user.context});
     const missing=[];if(!user.context.people)missing.push('per quante persone');if(!user.context.time)missing.push('quanto tempo hai');if(!hasFoodRequest(text))missing.push('ingrediente o piatto desiderato');
-    if(missing.length){event(user,'context_missing',{missing});return reply(`Mi manca ${missing.join(', ')}. Scrivimelo pure liberamente, anche a voce.`)}
+    if(missing.length){
+      event(user,'context_missing',{missing});
+      // D-049: se il messaggio era una foto/vocale senza testo utile, il generico "scrivimelo
+      // pure" è fuorviante (l'utente pensa di averlo già detto mandando la foto). La trascrizione
+      // e l'analisi immagine non sono ancora implementate (EVIDENCE.md): meglio dirlo chiaramente.
+      if(text==='[contenuto multimediale]')return reply(`Non riesco ancora ad analizzare foto o vocali senza descrizione. Mi manca ${missing.join(', ')}: scrivimi a parole cosa hai (es. "salmone", "melanzane, 30 minuti").`);
+      return reply(`Mi manca ${missing.join(', ')}. Scrivimelo pure liberamente, anche a voce.`)
+    }
     return await proposeDifficultyMenu(user);
   }
   if(user.state==='difficulty_choice'){
@@ -212,9 +219,22 @@ export async function handle(user,input,{source='simulator'}={}){
 }
 
 function propose(user,dishId,dishOverride=null){const d=dishOverride||dishes[dishId];user.state='proposal';user.session={id:crypto.randomUUID(),dishId:d.id,generatedDish:dishOverride||null,principle:d.competency,stepsTotal:d.steps.length,step:0,startedAt:new Date().toISOString(),lastStepAt:null,mode:null,answers:{},isSimulation:false};event(user,'proposal_created',{dishId:d.id,source:dishOverride?'generative_lab':'editorial'});return reply(`*${d.name}*\nTecnica: ${d.principle.term}`,buttons.proposal,{parseMode:'Markdown'})}
+// D-049: riassunto in linguaggio naturale delle tecniche già osservate per questo utente
+// (user.techniques, popolato in 'reflection' — territorio fisso D-028), passato al laboratorio
+// perché il campo 'focus' di ogni direzione sia davvero personalizzato e non un testo generico.
+// Solo le sessioni non simulate contano (stesso criterio già usato altrove, D-016): una prova
+// dichiarata come simulazione non deve far credere al laboratorio che l'utente sappia già fare
+// qualcosa che non ha davvero praticato.
+function techniqueHistoryNote(user){
+  const seen=Object.values(user.techniques||{}).filter(t=>!t.simulatedOnly&&t.count>0);
+  if(!seen.length)return 'Storia dell\'utente: nessuna tecnica ancora osservata su Tavola. Ogni direzione proposta sarebbe una prima esposizione.';
+  const labelOf=id=>TECHNIQUE_MAP.find(t=>t.id===id)?.label||id;
+  const list=seen.map(t=>`${labelOf(t.id)} (${t.count} volta/e)`).join(', ');
+  return `Storia dell'utente: tecniche già praticate su Tavola — ${list}. Se una di queste tre direzioni usa una di queste tecniche, il focus deve proporre un affinamento o una variazione, non ripetere la prima esposizione.`;
+}
 async function proposeDifficultyMenu(user){
   if(!labAvailable()){user.state='lab_connection_required';event(user,'lab_connection_required');return reply('Il laboratorio non è collegato. Apri la configurazione per attivare le tre direzioni gastronomiche.',[['⚙️ Come collegarlo?']])}
-  try{const ideas=await generateDifficultyIdeas(user.context);user.context.difficultyIdeas=ideas;user.state='difficulty_choice';event(user,'difficulty_menu_generated',{ideas:ideas.map(x=>({level:x.level,name:x.name}))});const labels=['Semplice curato','Tecnico','Gourmet'];return reply(`Tre direzioni possibili:\n\n${ideas.map((x,i)=>`**${i+1}. ${labels[i]} — ${x.name}**\n${x.description}\n_Tecnica: ${x.principle}_`).join('\n\n')}\n\nQuale vuoi sviluppare?`,difficultyButtons(ideas),{parseMode:'Markdown'})}catch(error){event(user,'difficulty_menu_failed',{message:error.message.slice(0,200)});user.state='collecting_context';return reply('Non sono riuscito a costruire tre direzioni abbastanza distinte. Riprova tra poco: non ti propongo alternative riempitive.')}
+  try{const ideas=await generateDifficultyIdeas(user.context,techniqueHistoryNote(user));user.context.difficultyIdeas=ideas;user.state='difficulty_choice';event(user,'difficulty_menu_generated',{ideas:ideas.map(x=>({level:x.level,name:x.name}))});const labels=['Semplice curato','Tecnico','Gourmet'];return reply(`Tre direzioni possibili:\n\n${ideas.map((x,i)=>`**${i+1}. ${labels[i]} — ${x.name}**\n${x.description}\n_Tecnica: ${x.principle}_\n_Focus: ${x.focus}_`).join('\n\n')}\n\nQuale vuoi sviluppare?`,difficultyButtons(ideas),{parseMode:'Markdown'})}catch(error){event(user,'difficulty_menu_failed',{message:error.message.slice(0,200)});user.state='collecting_context';return reply('Non sono riuscito a costruire tre direzioni abbastanza distinte. Riprova tra poco: non ti propongo alternative riempitive.')}
 }
 function difficultyButtons(ideas){return ideas.map((x,i)=>[[`${i===0?'🌿':i===1?'🔬':'✨'} ${i===0?'Semplice curato':i===1?'Tecnico':'Gourmet'} — ${x.name}`]]).flat()}
 async function proposeFromLab(user,followup=''){
@@ -298,7 +318,15 @@ async function tryOneShot(user,text,n){
   event(user,'context_captured',{...user.context,source:'one_shot'});
   return await proposeDifficultyMenu(user);
 }
-function hasFoodRequest(text){return /[a-zà-ù]{4,}/i.test(String(text).replace(/persone?|commensali|minuti?|oretta|ore|tempo|preparazione|ingrediente|principale|voglio|vorrei|fare|usare/gi,''))}
+// D-049: '[contenuto multimediale]' è il testo segnaposto che server.mjs usa quando un messaggio
+// Telegram è una foto/vocale senza didascalia (trascrizione e analisi immagine non sono ancora
+// implementate, cfr. EVIDENCE.md). Prima di questa correzione il segnaposto superava comunque il
+// controllo (le parole "contenuto" e "multimediale" hanno 4+ lettere), quindi un input privo di
+// un vero ingrediente arrivava al laboratorio, che — non avendo un modo di chiedere chiarimenti
+// nello schema delle tre direzioni — riempiva il campo principle con testo di richiesta di
+// chiarimento invece di una vera tecnica. Qui il segnaposto (e in generale qualunque testo tra
+// parentesi quadre, mai scritto da un utente reale) viene rimosso prima del controllo.
+function hasFoodRequest(text){return /[a-zà-ù]{4,}/i.test(String(text).replace(/\[[^\]]*\]/g,'').replace(/persone?|commensali|minuti?|oretta|ore|tempo|preparazione|ingrediente|principale|voglio|vorrei|fare|usare/gi,''))}
 // Fascia oraria del D+1 (Fase 1, item "Programmare il D+1 in una fascia scelta dall'utente"):
 // per scelta esplicita del progettista, l'utente indica un orario libero (es. "8:00" o "alle 9"),
 // interpretato da parseClockTime; il valore scelto è una preferenza permanente (user.preferences.dplusTime),

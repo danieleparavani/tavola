@@ -853,3 +853,25 @@ Il motore di disegno è volutamente semplice (forme geometriche piene, nessuna r
 Stesso flusso delle volte precedenti: push diretto da questa sessione bloccato dal proxy git ("repository non nel set autorizzato"), bundle git (`tavola-D048.bundle`) preparato, consegnato al progettista e scritto nella sua cartella locale connessa. Applicato da terminale SSH sulla VM: caricamento del file, `git fetch`/`git merge` (fast-forward pulito `0672b42..065e508`, 13 file), `git push origin main` (riuscito), `npm test` sulla VM (91/91 superati), `sudo systemctl restart tavola` e verifica `sudo systemctl status tavola` → `active (running)`, log di avvio regolare (`Tavola: http://localhost:4310`). Verificato passo per passo con screenshot del terminale a ogni fase, stesso metodo delle sessioni precedenti.
 
 Resta da verificare dal vivo, con una vera chiamata al laboratorio generativo, che il campo `plating` venga compilato in modo coerente con la ricetta reale e che immagine e testo arrivino correttamente su Telegram.
+
+## Failure osservato su Telegram reale — richiesta di chiarimento travestita da tecnica (11 settembre 2026)
+
+### Evidenza osservata
+
+Subito dopo il deploy di D-048, il progettista ha usato il bot reale su Telegram e ha ricevuto una risposta "Tre direzioni possibili" in cui ciascuna delle tre righe etichettate "Tecnica:" conteneva testo di richiesta di chiarimento (es. "ottenere il vincolo centrale (ingrediente/immagine) prima di progettare le soluzioni") invece del nome di una tecnica di cucina reale. Il progettista ha segnalato che quella parte del messaggio deve invece contenere la tecnica di cucina usata e un focus pedagogicamente personalizzato.
+
+### Interpretazione
+
+Causa radice trovata leggendo il codice: `server.mjs` genera il testo `'[contenuto multimediale]'` quando un messaggio Telegram è una foto o un vocale senza didascalia. `hasFoodRequest` (il controllo che decide se il contesto contiene già un ingrediente valido) considerava quel segnaposto una richiesta valida, perché le parole "contenuto" e "multimediale" hanno entrambe 4+ lettere e non erano tra le stopword escluse. Il contesto raggiungeva così il laboratorio generativo con una richiesta priva di senso; il laboratorio, non avendo un canale per chiedere chiarimenti nello schema delle tre direzioni (a differenza dello schema della ricetta completa, che ha `kind=clarification`), riempiva comunque i campi obbligatori con l'unico contenuto plausibile: una richiesta di chiarimento scritta come se fosse il contenuto del piatto.
+
+### Decisione
+
+Vedi DECISIONS.md, D-049: corretto `hasFoodRequest` per ignorare il testo tra parentesi quadre (convenzione interna, mai scritta da un utente reale); aggiunto un messaggio specifico quando l'input era una foto/vocale senza testo, che spiega il limite invece del generico "scrivimelo pure"; aggiunto un nuovo campo obbligatorio `focus` allo schema delle tre direzioni, distinto dal nome della tecnica (`principle`), pensato per essere pedagogicamente personalizzato in base a una nuova nota (`techniqueHistoryNote`) che riassume le tecniche già osservate per l'utente (territorio fisso D-028).
+
+### Verifica
+
+2 nuovi test su `hasFoodRequest` in `test/unit.test.mjs`; 3 nuovi test in `test/engine.test.mjs` (foto senza didascalia non salta più alle tre direzioni; nota "prima esposizione" quando non c'è storia; nota con conteggio esatto quando una tecnica è già stata osservata, verificato leggendo il corpo della richiesta mockata). Suite completa: 96/96 test superati.
+
+### Limite dichiarato
+
+Non verificato dal vivo su Telegram reale se il focus generato sia davvero percepito come personalizzato e utile. Il problema di fondo — Tavola non analizza ancora davvero foto o vocali — non è risolto, solo reso innocuo (non blocca più il flusso in modo silenzioso e fuorviante).
