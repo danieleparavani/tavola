@@ -212,17 +212,23 @@ export async function handle(user,input,{source='simulator'}={}){
     // D-051: le regole lessicali sopra non hanno riconosciuto nulla — prima di arrenderci al
     // messaggio generico, chiediamo al laboratorio di interpretare l'intento tra le sole quattro
     // opzioni valide in questo stato (mai testo libero, cfr. commento su classifyIntent).
+    // D-058: quinta opzione 'ricomincia', stesso motivo di D-057 in 'cooking' — isIntentChoice
+    // sopra riconosce solo formulazioni lessicali esplicite di riavvio; qui, prima che questa
+    // classificazione esistesse, una richiesta di riavvio diversa cadeva forzata in una delle
+    // quattro categorie originarie invece di essere riconosciuta come tale.
     const choice=await classifyIntent(text,[
       {key:'simple',description:'sceglie la prima direzione proposta, quella "semplice curato"'},
       {key:'technical',description:'sceglie la seconda direzione proposta, quella "tecnico"'},
       {key:'gourmet',description:'sceglie la terza direzione proposta, quella "gourmet"'},
       {key:'other',description:"nessuna delle tre proposte convince così com'è, ne vuole altre diverse"},
+      {key:'ricomincia',description:'vuole abbandonare questo piatto e ricominciare tutto da capo con qualcos\'altro, non solo vedere altre direzioni per lo stesso ingrediente'},
     ]);
     event(user,'difficulty_intent_classified',{text,choice});
     if(choice==='simple')return await selectIdea(0);
     if(choice==='technical')return await selectIdea(1);
     if(choice==='gourmet')return await selectIdea(2);
     if(choice==='other')return await regenerate();
+    if(choice==='ricomincia')return askRestartConfirmation(user,n,'difficulty_choice');
     return reply('Scegli una delle tre direzioni: semplice curato, tecnico oppure gourmet. Se non ti convincono, scrivimi "altre proposte" e ne preparo tre diverse.',difficultyButtons(user.context.difficultyIdeas));
   }
   if(user.state==='lab_connection_required'){
@@ -253,17 +259,22 @@ export async function handle(user,input,{source='simulator'}={}){
     // D-051: nessuna delle frasi previste ha matchato — prima del silenzio (che lasciava
     // proseguire il messaggio fino al fallback generico finale, disorientante a metà proposta),
     // chiediamo al laboratorio quale delle quattro azioni valide qui corrisponde all'intento.
+    // D-058: quinta opzione 'ricomincia', distinta da 'altra' — 'altra' resta dentro lo stesso
+    // ingrediente/contesto (rigenera tre nuove direzioni, D-019), 'ricomincia' abbandona il
+    // contesto stesso (persone/tempo/ingrediente) e passa dalla conferma di sicurezza (D-043).
     const choice=await classifyIntent(text,[
       {key:'fonti',description:'vuole vedere le fonti e le scelte tecniche dietro la proposta'},
       {key:'lista',description:'vuole la lista della spesa per questo piatto'},
-      {key:'altra',description:'questa proposta non convince, ne vuole un\'altra'},
+      {key:'altra',description:'questa proposta non convince, ne vuole un\'altra ma restando sullo stesso ingrediente/contesto'},
       {key:'piace',description:'la proposta va bene, vuole procedere / ha già tutti gli ingredienti'},
+      {key:'ricomincia',description:'vuole abbandonare del tutto questo piatto e ricominciare da capo con un contesto diverso (altri ingredienti, altra occasione)'},
     ]);
     event(user,'proposal_intent_classified',{text,choice});
     if(choice==='fonti')return openFonti();
     if(choice==='lista')return openLista();
     if(choice==='altra')return rejectProposal();
     if(choice==='piace')return acceptProposal();
+    if(choice==='ricomincia')return askRestartConfirmation(user,n,'proposal');
     event(user,'proposal_intent_unrecognized',{text});
     return reply('Non ho capito se questa proposta ti convince: dimmelo, oppure chiedimi la lista della spesa, le fonti, o un\'altra idea.',buttons.proposal);
   }
@@ -295,12 +306,18 @@ export async function handle(user,input,{source='simulator'}={}){
       // ricetta passo passo deve farlo"). Stesso pattern già in uso altrove (D-051): la regola
       // lessicale resta come scorciatoia rapida per il caso più comune, e solo se non matcha si
       // chiede al laboratorio di classificare il vero intento tra le due sole opzioni valide qui.
+      // D-058: terza opzione 'ricomincia' — prima una richiesta di abbandonare il piatto (non
+      // solo di iniziare o fare una domanda) formulata qui, dopo aver letto tutta la ricetta,
+      // veniva forzata in una delle due categorie originarie: quasi sempre 'domanda', con una
+      // risposta del laboratorio incoerente rispetto all'intento reale.
       const startChoice=await classifyIntent(text,[
         {key:'inizia',description:'vuole iniziare o riprendere subito a cucinare passo per passo, seguendo la guida'},
-        {key:'domanda',description:'sta facendo una domanda, un\'osservazione o segnalando una possibile correzione sulla ricetta: non vuole ancora iniziare'},
+        {key:'domanda',description:'sta facendo una domanda, un\'osservazione o segnalando una possibile correzione sulla ricetta: non vuole ancora iniziare né abbandonare il piatto'},
+        {key:'ricomincia',description:'vuole abbandonare del tutto questo piatto e ricominciare da capo con qualcos\'altro'},
       ]);
       event(user,'full_read_intent_classified',{text,choice:startChoice});
       if(startChoice==='inizia')return startFullGuide();
+      if(startChoice==='ricomincia')return askRestartConfirmation(user,n,'mode');
       const dish=currentDish(user);
       event(user,'recipe_question_asked',{text});
       const {reply:answer,hasCorrection,correction}=await answerRecipeQuestion(dish,text);
@@ -326,12 +343,18 @@ export async function handle(user,input,{source='simulator'}={}){
       // D-051: prima nessun messaggio non riconosciuto veniva mai fermato qui — finiva sempre,
       // silenziosamente, in modalità guidata, anche quando l'utente aveva chiaramente chiesto di
       // leggere tutto o di vedere solo i punti critici con parole diverse da quelle previste.
+      // D-058: quarta opzione 'ricomincia' — le tre precedenti coprono solo come cucinare QUESTO
+      // piatto; una richiesta di abbandonarlo del tutto veniva forzata verso 'guided' (l'ultimo
+      // ramo del ternario sotto), avviando comunque la guida su un piatto che l'utente non
+      // voleva più.
       const choice=await classifyIntent(text,[
         {key:'full',description:'vuole leggere subito tutta la ricetta, tutti i passaggi in una volta'},
         {key:'essential',description:'vuole solo i punti critici, senza essere guidato passo per passo'},
         {key:'guided',description:'vuole essere guidato passo dopo passo durante la cucina'},
+        {key:'ricomincia',description:'vuole abbandonare questo piatto e ricominciare da capo con qualcos\'altro, non scegliere come cucinarlo'},
       ]);
       event(user,'mode_intent_classified',{text,choice});
+      if(choice==='ricomincia')return askRestartConfirmation(user,n,'mode');
       mode=choice==='full'?'full':choice==='essential'?'essential':'guided';
     }
     user.session.mode=mode;event(user,'guidance_mode_selected',{mode:user.session.mode});

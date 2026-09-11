@@ -1029,3 +1029,25 @@ Un nuovo test in `test/engine.test.mjs`: riconoscimento del riavvio per signific
 ### Limite dichiarato
 
 La correzione riguarda solo lo stato `cooking`. Lo stesso gap (riavvio riconosciuto solo lessicalmente) resta negli altri stati con un piatto in corso, non ancora estesi per coerenza. Non ancora verificato dal vivo su Telegram.
+
+## Estensione — l'opzione di ricominciare in tutti gli stati che già classificano l'intento (11 settembre 2026)
+
+### Evidenza osservata
+
+Dopo la conferma del deploy di D-057, che dichiarava esplicitamente il limite (corretto solo in `cooking`), il progettista ha risposto "procedi".
+
+### Interpretazione
+
+Lo stesso gap era identico in ogni altro stato che già chiama `classifyIntent` come fallback (D-051 e successivi): `difficulty_choice`, `proposal`, `mode` (scelta iniziale) e `mode==='full'`. Una richiesta di abbandonare del tutto il piatto, formulata senza le parole lessicali riconosciute da `isIntentChoice`, veniva forzata in una delle categorie esistenti in ciascuno di quei quattro punti.
+
+### Decisione
+
+Vedi DECISIONS.md, D-058: quinta (o terza/quarta) opzione `ricomincia` in ciascuna delle quattro classificazioni esistenti, distinta esplicitamente dall'opzione più vicina già presente, che porta sempre alla stessa domanda di conferma (D-043). Non estesi gli stati di raccolta dati strutturati né `lab_clarification`/`proposal_feedback`, per la stessa scelta architetturale già dichiarata in D-051/D-055.
+
+### Verifica
+
+Quattro nuovi test in `test/engine.test.mjs`, uno per stato, ciascuno con una frase verificata contro `isIntentChoice` per assicurarsi di esercitare davvero il fallback `classifyIntent`. Suite completa: 122/122 test superati.
+
+### Limite dichiarato
+
+Il gap resta, per scelta esplicita, negli stati di raccolta dati strutturati e in `lab_clarification`/`proposal_feedback`. Non ancora verificato dal vivo su Telegram.

@@ -1388,6 +1388,100 @@ test('mode (full): una richiesta di riprendere la ricetta formulata senza la par
   }
 });
 
+test('difficulty_choice: una richiesta di ricominciare da capo formulata liberamente viene riconosciuta e chiede conferma prima di riavviare (D-058)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('restart-difficulty1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    assert.equal(u.state, 'difficulty_choice');
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'ricomincia' }) });
+    const out = await handle(u, { text: 'lascia perdere tutto, voglio pensare a qualcosa di totalmente diverso stasera' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(out.text, /Sei sicuro di voler ricominciare/);
+    assert.ok(u.events.some(e => e.type === 'difficulty_intent_classified' && e.payload.choice === 'ricomincia'));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('proposal: una richiesta di ricominciare da capo formulata liberamente viene riconosciuta e chiede conferma, distinta da "altra idea" (D-058)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('restart-proposal1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    assert.equal(u.state, 'proposal');
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'ricomincia' }) });
+    const out = await handle(u, { text: 'in realtà non mi interessa più, voglio pensare a tutt\'altro per stasera' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(out.text, /Sei sicuro di voler ricominciare/);
+    assert.ok(u.events.some(e => e.type === 'proposal_intent_classified' && e.payload.choice === 'ricomincia'));
+    assert.ok(!u.events.some(e => e.type === 'proposal_rejected'));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('mode: una richiesta di ricominciare da capo formulata liberamente, prima ancora di scegliere come cucinare, viene riconosciuta (D-058)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('restart-mode1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'mi piace' }); // proposal -> mode
+    assert.equal(u.state, 'mode');
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'ricomincia' }) });
+    const out = await handle(u, { text: 'no, cambiamo tutto, voglio pensare a qualcos\'altro stasera' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(out.text, /Sei sicuro di voler ricominciare/);
+    assert.ok(u.events.some(e => e.type === 'mode_intent_classified' && e.payload.choice === 'ricomincia'));
+
+    // conferma: deve davvero riavviare
+    const confirmed = await handle(u, { text: 'sì, confermo' });
+    assert.equal(u.state, 'collecting_people');
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('mode (full): una richiesta di ricominciare da capo, dopo aver letto tutta la ricetta, viene riconosciuta e distinta da una domanda (D-058)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('restart-mode-full1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, zucca' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'mi piace' }); // proposal -> mode
+    await handle(u, { text: 'fammi leggere tutto' }); // mode -> 'full'
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'ricomincia' }) });
+    const out = await handle(u, { text: 'niente, lascia stare, voglio pensare a tutt\'altro per stasera' });
+    assert.equal(u.state, 'confirm_restart');
+    assert.match(out.text, /Sei sicuro di voler ricominciare/);
+    assert.ok(u.events.some(e => e.type === 'full_read_intent_classified' && e.payload.choice === 'ricomincia'));
+    assert.ok(!u.events.some(e => e.type === 'recipe_question_asked'));
+  } finally {
+    restoreFetch();
+  }
+});
+
 test('mode: se classifyIntent non trova nulla, il comportamento resta quello prudente di prima (guidato per default) (D-051)', async () => {
   installFetchMock();
   try {
