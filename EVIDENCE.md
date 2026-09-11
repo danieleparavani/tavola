@@ -825,3 +825,25 @@ Vedi DECISIONS.md, D-047: `core/atlante.mjs` riscritto per cercare sui 5305 chun
 ### Limite dichiarato
 
 Stessi limiti non risolti di D-046: nessuna misura di latenza reale, nessuna verifica dal vivo contro il gate editoriale, non ancora deployato sulla VM. Il matching sui chunk restituisce risultati più granulari ma potenzialmente più numerosi su query ambigue: non validato su un campione ampio di richieste reali.
+
+## Schema di impiattamento a regole, immagine e testo (11 settembre 2026)
+
+### Evidenza osservata
+
+Il progettista ha chiesto se Tavola fosse in grado di generare un'immagine di ogni piatto. Alla domanda diretta su che forma dovesse avere lo schema di impiattamento nel bot (solo immagine, solo testo, o entrambi), ha scelto "entrambi".
+
+### Interpretazione
+
+Generare l'immagine con un modello (es. DALL·E) avrebbe aggiunto costo e latenza proprio nella sessione in cui la priorità era stata ridurre la latenza (D-046/D-047), e avrebbe introdotto il rischio che l'immagine non corrispondesse davvero alla ricetta descritta — una forma di falsa precisione che il protocollo esclude già altrove (D-018). Il piatto ha già, per obbligo di D-020, un ultimo passaggio esplicito di impiattamento: mancava solo un campo strutturato che lo rendesse anche disegnabile da un motore a regole, oltre che leggibile come testo.
+
+### Decisione
+
+Vedi DECISIONS.md, D-048: nuovo campo strutturato `plating` nello schema del laboratorio (elementi posizionati su un quadrante d'orologio con una forma tra un piccolo insieme enumerato, stile di salsa enumerato, temperatura/consistenze/finitura in testo vincolato a ripetere il passaggio, non a inventare altro). Da questo campo vengono derivati sia un testo strutturato sia un'immagine PNG disegnata da un motore di regole deterministico (`core/platingRender.mjs`, su un encoder PNG scritto da zero in `core/png.mjs` con solo `node:zlib`, nessuna dipendenza esterna). Il gate editoriale verifica che il campo non sia assente, incompleto o con meno di due elementi. Su Telegram lo schema arriva come foto con didascalia dopo il messaggio del passaggio finale, sempre, anche in modalità "solo punti critici"; nel simulatore web compare come immagine inline.
+
+### Verifica
+
+Nuovo `test/platingRender.test.mjs` (7 test: firma PNG valida, determinismo, tutte le combinazioni forma/stile senza eccezioni, posizioni sul quadrante, composizione del testo, testo vuoto se assente). `test/unit.test.mjs` esteso con 3 test sul nuovo controllo editoriale. `test/engine.test.mjs`: il gate più severo ha fatto fallire 11 test preesistenti perché il loro fixture del laboratorio mockato non aveva il nuovo campo `plating` — corretto aggiornando il fixture, non la logica del gate. Suite completa dopo la correzione: 91/91 test superati (`npm test`).
+
+### Limite dichiarato
+
+Il motore di disegno è volutamente semplice (forme geometriche piene, nessuna resa realistica): è uno schema, non una fotografia, e va presentato come tale. Non verificato dal vivo su Telegram (nessuna chiamata reale al laboratorio in questa sessione). Non verificata la leggibilità reale dello schema per un utente, né se l'insieme enumerato di forme e posizioni sia abbastanza espressivo per piatti molto diversi tra loro: da osservare nel micro-pilot (NEXT.md, Fase 2). Non ancora deployato sulla VM di produzione.

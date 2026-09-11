@@ -65,6 +65,17 @@ function validLabDish(id = 'lab_zucca_test') {
           { term: 'Frittura rapida', title: 'Friggi la salvia', action: 'Friggi le foglie di salvia in burro chiarificato per pochi secondi.', observe: 'diventano rigide e traslucide', why: 'la breve frittura elimina l’umidità senza bruciare la clorofilla', help: 'toglile subito se scuriscono' },
           { term: 'Impiattamento', title: 'Componi il piatto', action: 'Disponi la zucca al centro del piatto caldo, adagia la salvia fritta sopra e finisci con un filo d’olio.', observe: 'il piatto resta caldo e la salvia rimane croccante in superficie', why: 'la finitura a crudo protegge la croccantezza della salvia', help: 'servi immediatamente' },
         ],
+        // D-048: campo strutturato richiesto dal gate editoriale (core/lab.mjs, qualityIssues).
+        plating: {
+          clockLayout: [
+            { element: 'zucca rosolata', position: 'centro', shape: 'mucchio' },
+            { element: 'salvia fritta', position: '12', shape: 'linea' },
+          ],
+          sauceStyle: 'nessuna',
+          temperature: 'piatto caldo',
+          textureNote: 'la salvia deve restare croccante in superficie',
+          finish: 'filo d’olio a crudo, salvia adagiata solo al momento',
+        },
       },
     }),
   };

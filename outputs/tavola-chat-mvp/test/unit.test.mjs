@@ -114,6 +114,16 @@ function baseDish(overrides = {}) {
       { term: 'Cottura differenziale', title: 'Cuoci il pesce', action: 'Scotta i filetti di pesce spada da un lato con poco olio, poi gira.', observe: 'la superficie si rosola', why: 'il calore diretto rosola senza seccare il centro', help: 'riduci il fuoco se scurisce troppo in fretta' },
       { term: 'Impiattamento', title: 'Componi il piatto', action: 'Disponi le zucchine come base nel piatto tiepido, adagia sopra il pesce spada, finisci con un filo d’olio e limone.', observe: 'il piatto è caldo e le consistenze restano separate', why: 'la base assorbe i succhi senza ammorbidire il pesce', help: 'servi subito per non perdere calore' },
     ],
+    plating: {
+      clockLayout: [
+        { element: 'zucchine trifolate', position: '6', shape: 'mucchio' },
+        { element: 'filetto di pesce spada', position: 'centro', shape: 'fetta' },
+      ],
+      sauceStyle: 'nessuna',
+      temperature: 'piatto tiepido',
+      textureNote: 'le consistenze restano separate, non impilate',
+      finish: 'filo d’olio e limone al momento',
+    },
     ...overrides,
   };
 }
@@ -212,4 +222,24 @@ test('qualityIssues verifica il reinserimento delle vongole quando pertinente', 
   ];
   const issues = qualityIssues(dish, { people: '2', time: '30', raw: 'vongole' });
   assert.ok(issues.some(i => i.includes('reinserimento')), `atteso reinserimento mancante, trovato: ${issues.join(' | ')}`);
+});
+
+// --- D-048: schema strutturato di impiattamento -----------------------------------
+
+test('qualityIssues richiede lo schema di impiattamento con almeno due elementi posizionati', () => {
+  const dish = baseDish({ plating: { ...baseDish().plating, clockLayout: [{ element: 'pesce', position: 'centro', shape: 'fetta' }] } });
+  const issues = qualityIssues(dish, { people: '2', time: '40', raw: 'pesce spada' });
+  assert.ok(issues.some(i => i.includes('impiattamento') && i.includes('due elementi')), `atteso problema su clockLayout, trovato: ${issues.join(' | ')}`);
+});
+
+test('qualityIssues segnala uno schema di impiattamento assente', () => {
+  const dish = baseDish({ plating: undefined });
+  const issues = qualityIssues(dish, { people: '2', time: '40', raw: 'pesce spada' });
+  assert.ok(issues.some(i => i.includes('impiattamento assente')), `atteso schema assente, trovato: ${issues.join(' | ')}`);
+});
+
+test('qualityIssues segnala uno schema di impiattamento incompleto (temperatura/consistenze/finitura mancanti)', () => {
+  const dish = baseDish({ plating: { ...baseDish().plating, temperature: '' } });
+  const issues = qualityIssues(dish, { people: '2', time: '40', raw: 'pesce spada' });
+  assert.ok(issues.some(i => i.includes('incompleto')), `atteso schema incompleto, trovato: ${issues.join(' | ')}`);
 });

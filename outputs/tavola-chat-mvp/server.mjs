@@ -7,7 +7,12 @@ const json=(res,status,obj)=>{res.writeHead(status,{'content-type':'application/
 const body=req=>new Promise((resolve,reject)=>{let b='';req.on('data',c=>b+=c);req.on('end',()=>{try{resolve(JSON.parse(b||'{}'))}catch(e){reject(e)}})});
 function mime(file){return file.endsWith('.css')?'text/css':file.endsWith('.js')?'text/javascript':'text/html'}
 const server=http.createServer(async(req,res)=>{try{const url=new URL(req.url,'http://local');
-  if(req.method==='POST'&&url.pathname==='/api/message'){const b=await body(req);const id=String(b.userId||'demo');const u=db.users[id]??=newUser(id,b.name||'Tester');const out=await handle(u,{text:b.text,voice:b.voice,photo:b.photo},{source:'simulator'});save();return json(res,200,{reply:out,user:publicUser(u)})}
+  if(req.method==='POST'&&url.pathname==='/api/message'){const b=await body(req);const id=String(b.userId||'demo');const u=db.users[id]??=newUser(id,b.name||'Tester');const out=await handle(u,{text:b.text,voice:b.voice,photo:b.photo},{source:'simulator'});save();
+    // D-048: nel simulatore web (non Telegram) l'immagine dello schema di impiattamento viaggia
+    // come data URI dentro il JSON, così il buffer PNG grezzo non finisce serializzato come array
+    // di byte nella risposta.
+    if(out.photo)out.photo=`data:image/png;base64,${Buffer.from(out.photo).toString('base64')}`;
+    return json(res,200,{reply:out,user:publicUser(u)})}
   if(req.method==='POST'&&url.pathname==='/api/dplus'){const b=await body(req);const u=db.users[String(b.userId||'demo')];if(!u)return json(res,404,{error:'user_not_found'});const out=dplus(u);save();return json(res,200,{reply:out,user:publicUser(u)})}
   if(req.method==='GET'&&url.pathname==='/api/users')return json(res,200,{users:Object.values(db.users).filter(u=>!u.id.startsWith('qa-')).map(publicUser)});
   if(req.method==='GET'&&url.pathname==='/api/status')return json(res,200,{labConnected:labAvailable(),model:labAvailable()?(process.env.OPENAI_MODEL||'gpt-5-mini'):null});
@@ -73,7 +78,25 @@ async function checkProactiveDplus(){
 checkProactiveDplus().catch(e=>console.error('checkProactiveDplus fallito',e));
 setInterval(()=>{checkProactiveDplus().catch(e=>console.error('checkProactiveDplus fallito',e))},60*1000);
 function truncateBytes(str,maxBytes){let bytes=0,result='';for(const ch of String(str)){const b=Buffer.byteLength(ch,'utf8');if(bytes+b>maxBytes)break;bytes+=b;result+=ch}return result}
-async function sendTelegram(chatId,out){const token=process.env.TELEGRAM_BOT_TOKEN;if(!token)return;const reply_markup=out.keyboard?{inline_keyboard:out.keyboard.map(row=>row.map(text=>({text,callback_data:truncateBytes(text,64)})))}:undefined;const res=await fetch(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,text:out.text,parse_mode:out.parseMode,reply_markup})});if(!res.ok){const body=await res.text().catch(()=>'');console.error('Telegram sendMessage failed',res.status,body)}}
+async function sendTelegram(chatId,out){
+  const token=process.env.TELEGRAM_BOT_TOKEN;if(!token)return;
+  const reply_markup=out.keyboard?{inline_keyboard:out.keyboard.map(row=>row.map(text=>({text,callback_data:truncateBytes(text,64)})))}:undefined;
+  const res=await fetch(`https://api.telegram.org/bot${token}/sendMessage`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,text:out.text,parse_mode:out.parseMode,reply_markup})});
+  if(!res.ok){const body=await res.text().catch(()=>'');console.error('Telegram sendMessage failed',res.status,body)}
+  // D-048: schema di impiattamento inviato come immagine separata (photo), con lo stesso testo
+  // strutturato in didascalia. Usa FormData/Blob nativi di Node (nessuna dipendenza npm aggiunta,
+  // stessa convenzione del resto del progetto) per il multipart richiesto da sendPhoto. La
+  // didascalia Telegram è limitata a 1024 byte, da qui il troncamento difensivo.
+  if(out.photo){
+    const form=new FormData();
+    form.append('chat_id',String(chatId));
+    form.append('caption',truncateBytes(out.photoCaption||'',1024));
+    if(out.parseMode)form.append('parse_mode',out.parseMode);
+    form.append('photo',new Blob([out.photo],{type:'image/png'}),'impiattamento.png');
+    const photoRes=await fetch(`https://api.telegram.org/bot${token}/sendPhoto`,{method:'POST',body:form});
+    if(!photoRes.ok){const body=await photoRes.text().catch(()=>'');console.error('Telegram sendPhoto failed',photoRes.status,body)}
+  }
+}
 const port=Number(process.env.PORT||4310),host=process.env.HOST||'127.0.0.1';server.listen(port,host,()=>console.log(`Tavola: http://localhost:${port}`));
 
 

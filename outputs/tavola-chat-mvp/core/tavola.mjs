@@ -1,4 +1,5 @@
 import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt} from './lab.mjs';
+import {renderPlating,platingText} from './platingRender.mjs';
 
 // NOTA: questi tre piatti editoriali (alici, triglia in due varianti) sono gold example
 // verificati manualmente (cfr. EVIDENCE.md, Esperimento 1). Da quando il laboratorio
@@ -23,7 +24,11 @@ const dishes={
       {term:'Amido di cottura',title:'Cuoci molto al dente',action:'Sala meno del solito. Conserva una tazza d’acqua e trasferisci la pasta in padella circa due minuti prima del punto desiderato.',observe:'Preleva l’acqua quando è già torbida e ricca di amido.',why:'L’amido disperso nell’acqua aiuta a stabilizzare l’emulsione tra fase acquosa e olio.',help:'Se la pasta è già troppo avanti, trasferiscila subito e termina in padella con pochissima acqua.'},
       {term:'Emulsione e mantecatura',title:'Manteca',action:'Aggiungi poca acqua di cottura e muovi energicamente pasta e padella. Cerca una salsa lucida e aderente, non una pozza.',observe:'Passando il mestolo, il fondo si richiude lentamente.',why:'Movimento e amido aiutano acqua e grasso a restare distribuiti: è la costruzione dell’emulsione.',help:'Non aggiungere altra acqua per 30 secondi. Muovi pasta e padella; se il fondo resta asciutto, aggiungine un solo cucchiaio.'},
       {term:'Gestione dell’umidità',title:'Chiudi al piatto',action:'Distribuisci la pasta e aggiungi la mollica soltanto ora, soprattutto in superficie. Porta subito in tavola.',observe:'La mollica incontra l’umidità il più tardi possibile.',why:'Qui il tempo dell’unione è parte della tecnica e determina la texture finale.',help:'Tieni la mollica fuori dalla padella e aggiungila direttamente sui piatti.'}
-    ]
+    ],
+    // D-048: campo strutturato aggiunto retroattivamente ai tre piatti editoriali per coerenza
+    // con lo schema del laboratorio generativo, anche se restano fixture non raggiungibili dal
+    // motore conversazionale (D-014, nota in cima al file).
+    plating:{clockLayout:[{element:'nido di spaghetti',position:'centro',shape:'mucchio'},{element:'mollica croccante',position:'12',shape:'linea'}],sauceStyle:'nessuna',temperature:'piatto tiepido, non caldissimo, per non ammorbidire la mollica',textureNote:'la mollica deve restare croccante fino al primo boccone',finish:'mollica distribuita soprattutto in superficie, non mescolata'}
   },
   triglia_filetti:{
     id:'triglia_filetti',name:'Filetti di triglia in padella, pomodoro crudo e pane aromatico',competency:'delicate_fish',competencyName:'Cuocere un pesce sottile senza asciugarlo',
@@ -39,7 +44,8 @@ const dishes={
       {term:'Tostatura',title:'Tosta il pane aromatico',action:'Tosta poco pane sbriciolato con olio e prezzemolo. Mettilo da parte appena dorato.',observe:'È asciutto e friabile, non intriso d’olio.',why:'La finitura aggiunge una seconda consistenza senza prolungare la cottura del pesce.',help:'Allarga il pane e abbassa il fuoco se colora prima di diventare asciutto.'},
       {term:'Cottura differenziale',title:'Cuoci dalla pelle',action:'Scalda una padella con un velo d’olio. Appoggia i filetti dalla pelle e premili delicatamente per i primi 15 secondi. Cuoci quasi interamente da questo lato.',observe:'La polpa diventa opaca risalendo dai bordi, mentre il centro resta appena traslucido.',why:'La pelle riceve energia sufficiente per diventare croccante; la polpa cuoce soprattutto per conduzione, in modo più dolce.',help:'Se il filetto si incurva, premilo con una paletta solo all’inizio. Se la pelle scurisce subito, riduci il calore.'},
       {term:'Calore residuo',title:'Gira e chiudi',action:'Gira i filetti per 10–20 secondi, poi toglili. Servi con pomodoro e pane senza coprire completamente la pelle.',observe:'La polpa cede leggermente alla pressione e resta lucida all’interno.',why:'Il calore residuo continua la cottura dopo la padella: aspettare il punto finale sul fuoco significa superarlo nel piatto.',help:'Se temi che siano indietro, lasciali riposare un minuto. Non rimetterli subito su calore alto.'}
-    ]
+    ],
+    plating:{clockLayout:[{element:'filetti di triglia, pelle in vista',position:'12',shape:'fetta'},{element:'pomodoro crudo condito',position:'6',shape:'mucchio'},{element:'pane aromatico tostato',position:'3',shape:'linea'}],sauceStyle:'nessuna',temperature:'piatto appena tiepido, mai freddo di frigorifero',textureNote:'pelle croccante da non coprire, polpa che deve restare lucida e non seccarsi in attesa',finish:'pane aromatico aggiunto solo al momento, senza coprire la pelle'}
   },
   triglia_intera:{
     id:'triglia_intera',name:'Triglie intere al forno, limone e pangrattato aromatico',competency:'whole_fish',competencyName:'Controllare la cottura di un pesce intero piccolo',
@@ -55,7 +61,8 @@ const dishes={
       {term:'Esposizione al calore',title:'Disponi le triglie',action:'Metti i pesci distanziati su una teglia leggermente unta. Non sovrapporli e non coprirli.',observe:'L’aria calda può circolare attorno a ogni pesce.',why:'Pesci ammassati cuociono con vapore e in modo irregolare.',help:'Usa due teglie se necessario: la distanza conta più della comodità.'},
       {term:'Cottura per inerzia',title:'Cuoci e osserva',action:'Cuoci in forno caldo finché la polpa vicino alla lisca diventa appena opaca. Il tempo varia con peso e forno: controlla presto, senza affidarti solo ai minuti.',observe:'La pinna dorsale offre meno resistenza e la polpa si apre senza apparire asciutta.',why:'Il calore accumulato continua a propagarsi dopo l’uscita dal forno.',help:'Se non conosci peso e temperatura reale del forno, non posso darti un minuto preciso affidabile: controlla visivamente e con una piccola incisione vicino alla lisca.'},
       {term:'Riposo e finitura',title:'Riposa e completa',action:'Lascia riposare due minuti. Aggiungi il pangrattato tostato e poche gocce di limone solo al servizio.',observe:'I succhi restano nella polpa e il pane conserva la sua texture.',why:'Riposo e aggiunta tardiva gestiscono due fenomeni diversi: inerzia termica e migrazione dell’umidità.',help:'Non coprire stretto durante il riposo: ammorbidirai pelle e pane.'}
-    ]
+    ],
+    plating:{clockLayout:[{element:'triglie intere',position:'centro',shape:'ventaglio'},{element:'pangrattato tostato',position:'12',shape:'linea'},{element:'spicchio di limone',position:'4',shape:'fetta'}],sauceStyle:'nessuna',temperature:'piatto caldo, servito subito dopo il riposo',textureNote:'pelle e pangrattato devono restare asciutti e croccanti, non a contatto prolungato con i succhi',finish:'limone spremuto solo al momento del servizio, non prima'}
   }
 };
 
@@ -232,7 +239,18 @@ async function proposeFromLab(user,followup=''){
   }
 }
 function currentDish(user){return user.session?.generatedDish||dishes[user.session?.dishId||'alici']}
-function cookingReply(user){const d=currentDish(user),i=user.session.step,s=d.steps[i];event(user,'step_shown',{step:i,mode:user.session.mode});const isCritical=i===d.steps.length-1||norm(s.term)===norm(d.principle.term);if(user.session.mode==='essential'&&!isCritical)return reply(`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}`,buttons.step,{parseMode:'Markdown'});return reply(`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}\n\n👁 **Osserva:** ${s.observe}`,buttons.step,{parseMode:'Markdown'})}
+function cookingReply(user){
+  const d=currentDish(user),i=user.session.step,s=d.steps[i];event(user,'step_shown',{step:i,mode:user.session.mode});
+  const isLastStep=i===d.steps.length-1,isCritical=isLastStep||norm(s.term)===norm(d.principle.term);
+  // D-048: l'ultimo passaggio è sempre l'impiattamento (D-020). Se il piatto ha uno schema
+  // strutturato (plating), qui viene allegato sia come immagine (schema deterministico a regole,
+  // non generata da un modello) sia come testo, indipendentemente dalla modalità essenziale —
+  // è il passaggio critico per definizione, non va abbreviato.
+  const platingExtra=isLastStep&&d.plating?{photo:renderPlating(d.plating),photoCaption:platingText(d.plating)}:{};
+  if(user.session.mode==='essential'&&!isCritical)return reply(`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}`,buttons.step,{parseMode:'Markdown'});
+  const base=`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}\n\n👁 **Osserva:** ${s.observe}`;
+  return reply(base,buttons.step,{parseMode:'Markdown',...platingExtra});
+}
 function parsePeople(text){return text.match(/\b([1-9]\d?)\s*(persone|persona|commensali)\b/i)?.[1]||null}
 function parseTime(text){const hours=text.match(/\b(\d+(?:[.,]\d+)?)\s*(ora|ore|oretta)\b/i)?.[1];if(hours)return String(Math.round(parseFloat(hours.replace(',','.'))*60));return text.match(/\b(\d{1,3})\s*(min|minuti)\b/i)?.[1]||null}
 // Parser "morbidi" (D-027): riconoscono anche le etichette dei tasti rapidi (persone: 1/2/3/4/5+;
