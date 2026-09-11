@@ -1,4 +1,4 @@
-import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';import {newUser,handle,dplus,publicUser,logDashboardOpened,isDplusDue} from './core/tavola.mjs';import {labAvailable,TECHNIQUE_MAP} from './core/lab.mjs';
+import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';import {newUser,handle,dplus,publicUser,logDashboardOpened,isDplusDue,willCallLab} from './core/tavola.mjs';import {labAvailable,TECHNIQUE_MAP} from './core/lab.mjs';
 import {loadProtectedKey,saveProtectedKey} from './core/key-store.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));const pub=path.join(root,'public');const dataDir=path.join(root,'data');const dataFile=path.join(dataDir,'pilot.json');fs.mkdirSync(dataDir,{recursive:true});
 if(!process.env.OPENAI_API_KEY)process.env.OPENAI_API_KEY=loadProtectedKey();
@@ -54,7 +54,10 @@ async function telegramUpdate(update){
     if(String(text||'').trim().toLowerCase().includes('ho capito')){u.consentAt=new Date().toISOString();save()}
     else{save();await sendTelegram(msg.chat.id,{text:CONSENT_TEXT,keyboard:[[CONSENT_BUTTON]]});return}
   }
-  if(u.state==='difficulty_choice')await sendTelegram(msg.chat.id,{text:'Sto pensando alla proposta...'});
+  // D-050: mostra "sto pensando" solo quando il messaggio farà davvero ripartire il laboratorio
+  // (scelta di un livello, o una richiesta esplicita di altre proposte) — non per qualunque testo
+  // ricevuto mentre si è in 'difficulty_choice', altrimenti precede anche risposte istantanee.
+  if(willCallLab(u,text))await sendTelegram(msg.chat.id,{text:'Sto pensando alla proposta...'});
   const out=await handle(u,{text,voice:Boolean(update.message?.voice),photo:Boolean(update.message?.photo)},{source:'telegram'});save();await sendTelegram(msg.chat.id,out);
 }
 // Consegna proattiva del D+1 (Fase 1, item "Programmare il D+1 in una fascia scelta dall'utente"):

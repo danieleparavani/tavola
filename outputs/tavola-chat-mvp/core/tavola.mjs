@@ -73,6 +73,21 @@ const norm=s=>String(s||'').trim().toLowerCase();
 
 export function newUser(id,name='Tester'){return {id,name,state:'new',context:{people:null,time:null,ingredients:[],constraints:[],intent:null},session:null,pendingDplus:null,competencies:{},techniques:{},events:[],preferences:{dplusTime:'08:30'}}}
 
+// D-050: server.mjs mostra "Sto pensando alla proposta..." prima di chiamare handle() quando
+// l'utente è in 'difficulty_choice', perché lì la generazione può richiedere qualche secondo.
+// Prima di questa funzione lo faceva incondizionatamente, anche per messaggi che non avrebbero
+// mai chiamato il laboratorio (es. un testo non riconosciuto, respinto all'istante con un
+// rimando ai tre pulsanti): il risultato era un "sto pensando" seguito da una risposta identica
+// a quella precedente, che sembrava un errore. Questa funzione replica solo il sottoinsieme di
+// wantsOtherDirections/indice-livello che decide se handle() chiamerà davvero il laboratorio.
+export function willCallLab(user,text){
+  if(user.state!=='difficulty_choice')return false;
+  const n=norm(String(text||''));
+  if(isIntentChoice(n))return false;
+  const index=n.includes('semplice')?0:n.includes('tecnico')?1:n.includes('gourmet')?2:-1;
+  return index>=0||wantsOtherDirections(n);
+}
+
 export async function handle(user,input,{source='simulator'}={}){
   const text=String(input.text||input||'').trim(),n=norm(text);
   event(user,'message_received',{source,kind:input.voice?'voice':input.photo?'photo':'text',text});
@@ -148,7 +163,15 @@ export async function handle(user,input,{source='simulator'}={}){
   }
   if(user.state==='difficulty_choice'){
     if(isIntentChoice(n))return askRestartConfirmation(user,n,'difficulty_choice')
-    const index=n.includes('semplice')?0:n.includes('tecnico')?1:n.includes('gourmet')?2:-1;if(index<0)return reply('Scegli una delle tre direzioni: semplice curato, tecnico oppure gourmet.',difficultyButtons(user.context.difficultyIdeas));const idea=user.context.difficultyIdeas[index];user.context.difficulty=idea.level;user.context.selectedIdea=idea;event(user,'difficulty_selected',{level:idea.level,name:idea.name});return await proposeFromLab(user,`Livello scelto: ${idea.level}. Sviluppa: ${idea.name}`);
+    const index=n.includes('semplice')?0:n.includes('tecnico')?1:n.includes('gourmet')?2:-1;
+    if(index>=0){const idea=user.context.difficultyIdeas[index];user.context.difficulty=idea.level;user.context.selectedIdea=idea;event(user,'difficulty_selected',{level:idea.level,name:idea.name});return await proposeFromLab(user,`Livello scelto: ${idea.level}. Sviluppa: ${idea.name}`)}
+    if(wantsOtherDirections(n)){
+      const previous=(user.context.difficultyIdeas||[]).map(x=>x.name).filter(Boolean);
+      event(user,'difficulty_menu_regeneration_requested',{text,previous});
+      user.context.raw=`${user.context.raw} — le tre proposte precedenti non convincevano (${previous.join(', ')}). Proponi tre direzioni davvero diverse, non varianti delle stesse.`;
+      return await proposeDifficultyMenu(user);
+    }
+    return reply('Scegli una delle tre direzioni: semplice curato, tecnico oppure gourmet. Se non ti convincono, scrivimi "altre proposte" e ne preparo tre diverse.',difficultyButtons(user.context.difficultyIdeas));
   }
   if(user.state==='lab_connection_required'){
     return reply('Per attivare il laboratorio generativo bisogna collegare al server una chiave OpenAI API. Non incollarla nella chat: va salvata come variabile d’ambiente OPENAI_API_KEY.');
@@ -282,6 +305,17 @@ function parseTime(text){const hours=text.match(/\b(\d+(?:[.,]\d+)?)\s*(ora|ore|
 function parsePeopleLoose(text){const raw=String(text||'').trim();if(/^5\s*\+$/.test(raw))return '5';if(/^[1-4]$/.test(raw))return raw;return parsePeople(text)}
 function parseTimeLoose(text){const raw=String(text||'');if(/pi[uù]\s*di\s*un.?ora/i.test(raw))return '90';return parseTime(text)}
 function extractIngredients(n){const found=[];if(n.includes('trigli'))found.push('triglia');if(n.includes('alici'))found.push('alici');if(n.includes('acciugh'))found.push('acciughe');return found}
+// D-050: in 'difficulty_choice' un messaggio che non nomina uno dei tre livelli veniva trattato
+// come input non valido e ributtava all'utente le STESSE tre proposte già mostrate, senza alcun
+// tentativo di capire cosa stesse chiedendo (evidenza reale su Telegram: "dammi altre proposte"
+// ha prodotto "Sto pensando alla proposta..." seguito dal messaggio identico a poco prima). Questo
+// distingue una vera richiesta di alternative — che deve rigenerare tre direzioni nuove, non
+// ripetere le stesse — da isIntentChoice (che invece abbandona il piatto e ricomincia da capo).
+function wantsOtherDirections(n){
+  if(n.includes('altr')&&(n.includes('propost')||n.includes('idee')||n.includes('opzion')||n.includes('direzion')))return true;
+  if(n.includes('non mi piac')||n.includes('non mi convinc')||n.includes('non va bene')||n.includes('nessuna'))return true;
+  return false;
+}
 function isIntentChoice(n){if(n.includes('cerco un')||n.includes('facendo la spesa')||n.includes('ingredienti, cuciniamo')||n.includes('ingredienti cuciniamo'))return true;if(n.includes('nuova richiesta')||n.includes('altra richiesta')||n.includes('resett'))return true;if(n.includes('ricominc')||n.includes('da capo')||n.includes('ripart'))return true;if((n.includes('cambi')||n.includes('nuov')||n.includes('altra')||n.includes('altro'))&&(n.includes('ricetta')||n.includes('piatto')))return true;return false}
 // Correzione di un singolo dato già raccolto (persone o tempo), distinta da isIntentChoice:
 // lì l'utente vuole abbandonare il piatto e ricominciare da capo (con conferma, D-036/D-037);

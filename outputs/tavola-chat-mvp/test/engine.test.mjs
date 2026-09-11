@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newUser, handle, dplus, publicUser, isDplusDue } from '../core/tavola.mjs';
+import { newUser, handle, dplus, publicUser, isDplusDue, willCallLab } from '../core/tavola.mjs';
 
 // Il laboratorio generativo richiede una chiave presente nell'ambiente: per i test la
 // impostiamo a un valore fittizio e intercettiamo `fetch` così nessuna chiamata di rete
@@ -31,6 +31,21 @@ function threeIdeas() {
         { level: 'simple', name: 'Zucca arrosto al rosmarino', description: 'Cottura diretta, poche variabili.', principle: 'Caramellizzazione superficiale', focus: 'Prima esposizione: osserva come il calore diretto scurisce la superficie senza seccare il centro.' },
         { level: 'technical', name: 'Vellutata di zucca con crumble salato', description: 'Doppia consistenza controllata.', principle: 'Consistenza per contrasto', focus: 'Introduce il controllo di due consistenze nello stesso piatto.' },
         { level: 'gourmet', name: 'Zucca in due cotture con salvia fritta', description: 'Concentrazione del sapore in due fasi.', principle: 'Cottura in due tempi', focus: 'Applica su una verdura la logica di cottura in due fasi già utile su altri ingredienti.' },
+      ],
+    }),
+  };
+}
+
+// D-050: seconda infornata di idee, con nomi diversi dalla prima, per verificare che una
+// richiesta di "altre proposte" arrivi davvero a una nuova chiamata del laboratorio invece di
+// ripetere le stesse tre direzioni già mostrate.
+function threeOtherIdeas() {
+  return {
+    output_text: JSON.stringify({
+      ideas: [
+        { level: 'simple', name: 'Zucca al vapore con burro nocciola', description: 'Cottura delicata, condimento veloce.', principle: 'Cottura a vapore', focus: 'Prima esposizione alla cottura a vapore.' },
+        { level: 'technical', name: 'Gnocchi di zucca al forno', description: 'Impasto e cottura in due fasi.', principle: 'Legatura dell\'impasto', focus: 'Introduce il controllo dell\'umidità in un impasto.' },
+        { level: 'gourmet', name: 'Zucca fermentata e arrosto', description: 'Fermentazione breve, poi cottura diretta.', principle: 'Fermentazione lattica breve', focus: 'Applica un principio di trasformazione mai visto prima.' },
       ],
     }),
   };
@@ -873,4 +888,98 @@ test('confirm_restart: una risposta ambigua non decide nulla e richiede di nuovo
   } finally {
     restoreFetch();
   }
+});
+
+// --- D-050: richiesta di altre proposte in difficulty_choice --------------------------
+
+test('difficulty_choice: "dammi altre proposte" rigenera tre direzioni diverse invece di ripetere le stesse (D-050)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('otherideas1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    const first = await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    assert.equal(u.state, 'difficulty_choice');
+    assert.match(first.text, /Zucca arrosto al rosmarino/);
+
+    queueResponse(threeOtherIdeas());
+    const second = await handle(u, { text: 'dammi altre proposte' });
+    assert.equal(u.state, 'difficulty_choice');
+    assert.match(second.text, /Zucca al vapore con burro nocciola/);
+    assert.doesNotMatch(second.text, /Zucca arrosto al rosmarino/);
+    assert.deepEqual(u.context.difficultyIdeas.map(x => x.name), [
+      'Zucca al vapore con burro nocciola',
+      'Gnocchi di zucca al forno',
+      'Zucca fermentata e arrosto',
+    ]);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('difficulty_choice: "non mi convincono" viene riconosciuto come richiesta di altre proposte quanto "dammi altre proposte" (D-050)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('otherideas2', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    queueResponse(threeOtherIdeas());
+    const out = await handle(u, { text: 'non mi convincono, ne vuoi altre?' });
+    assert.equal(u.state, 'difficulty_choice');
+    assert.match(out.text, /Zucca al vapore con burro nocciola/);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('difficulty_choice: un testo non riconosciuto non chiama il laboratorio e rimanda ai tre pulsanti, menzionando "altre proposte" (D-050)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('otherideas3', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    // Nessuna risposta in coda: se il motore provasse comunque a chiamare il laboratorio,
+    // il test fallirebbe con "mock fetch: nessuna risposta in coda".
+    const out = await handle(u, { text: 'boh non saprei' });
+    assert.equal(u.state, 'difficulty_choice');
+    assert.match(out.text, /altre proposte/i);
+    assert.deepEqual(u.context.difficultyIdeas.map(x => x.name), [
+      'Zucca arrosto al rosmarino',
+      'Vellutata di zucca con crumble salato',
+      'Zucca in due cotture con salvia fritta',
+    ]);
+  } finally {
+    restoreFetch();
+  }
+});
+
+// --- D-050: willCallLab, usata da server.mjs per decidere se mostrare "sto pensando" --
+
+test('willCallLab: vero solo quando il messaggio sceglierà un livello o chiederà altre proposte (D-050)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('willcalllab1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, ho della zucca' });
+    assert.equal(u.state, 'difficulty_choice');
+
+    assert.equal(willCallLab(u, 'tecnico'), true);
+    assert.equal(willCallLab(u, 'dammi altre proposte'), true);
+    assert.equal(willCallLab(u, 'boh non saprei'), false);
+    assert.equal(willCallLab(u, 'ricominciamo da capo'), false); // isIntentChoice: va a confirm_restart, non al laboratorio
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('willCallLab: sempre falso fuori da difficulty_choice (D-050)', () => {
+  const u = newUser('willcalllab2', 'Tester');
+  assert.equal(willCallLab(u, 'tecnico'), false);
 });

@@ -875,3 +875,25 @@ Vedi DECISIONS.md, D-049: corretto `hasFoodRequest` per ignorare il testo tra pa
 ### Limite dichiarato
 
 Non verificato dal vivo su Telegram reale se il focus generato sia davvero percepito come personalizzato e utile. Il problema di fondo — Tavola non analizza ancora davvero foto o vocali — non è risolto, solo reso innocuo (non blocca più il flusso in modo silenzioso e fuorviante).
+
+## Failure osservato su Telegram reale — "altre proposte" ignorata, stessa risposta ripetuta (11 settembre 2026)
+
+### Evidenza osservata
+
+Subito dopo il deploy di D-049, il progettista ha mostrato uno screenshot di Telegram reale: dopo aver ricevuto tre direzioni per un saltimbocca, ha scritto "dammi altre proposte". Il bot ha risposto "Sto pensando alla proposta...", poi ha rimandato le stesse identiche tre proposte già mostrate (stessi nomi, stesse tecniche, stessi focus), precedute da "Scegli una delle tre direzioni: semplice curato, tecnico oppure gourmet." Il progettista ha commentato: "in questo caso volevo altre proposte ma non ha capito. Perché non sembra intelligente come una AI".
+
+### Interpretazione
+
+Causa radice trovata leggendo il codice: lo stato `difficulty_choice` riconosceva solo un input contenente "semplice", "tecnico" o "gourmet"; qualunque altro testo veniva respinto rimostrando l'array `difficultyIdeas` già generato, invariato — non esisteva alcun percorso per rigenerare tre direzioni nuove da questo stato. In più, `server.mjs` mostrava "Sto pensando alla proposta..." per ogni messaggio ricevuto in questo stato, anche quando la risposta sarebbe stata istantanea (nessuna chiamata al laboratorio), rendendo l'esperienza ancora più simile a un errore.
+
+### Decisione
+
+Vedi DECISIONS.md, D-050: nuovo riconoscimento esplicito di una richiesta di alternative in `difficulty_choice`, che ora rigenera davvero tre direzioni nuove passando al laboratorio i nomi di quelle già scartate; messaggio di fallback aggiornato per suggerire esplicitamente questa opzione; "sto pensando" mostrato solo quando il messaggio farà davvero ripartire il laboratorio (nuova funzione condivisa `willCallLab`).
+
+### Verifica
+
+5 nuovi test in `test/engine.test.mjs`: rigenerazione con nomi verificati esplicitamente diversi dai precedenti; riconoscimento di una formulazione alternativa ("non mi convincono"); conferma che un testo non riconosciuto non chiama il laboratorio; `willCallLab` vera/falsa nei casi attesi. Suite completa: 101/101 test superati.
+
+### Limite dichiarato
+
+Il riconoscimento della richiesta di alternative è lessicale (un elenco di frasi comuni), non semantico: formulazioni molto diverse da quelle previste potrebbero ancora cadere nel fallback, anche se ora quel fallback suggerisce esplicitamente la formula che funziona. Non ancora verificato dal vivo su Telegram con una vera chiamata al laboratorio che rigenera.
