@@ -1126,7 +1126,12 @@ test('mode (full): un testo diverso da "inizia" dopo aver letto tutta la ricetta
 
     // Prima di D-053 questo messaggio veniva ignorato e faceva ripartire la guida dal primo
     // passaggio (user.state='cooking', session.step=0) senza mai consultare il laboratorio.
-    queueResponse({ output_text: 'Hai ragione: nel passaggio 2 manca l\'indicazione di scolare bene la zucca prima di frullarla, altrimenti la vellutata risulta troppo liquida.' });
+    // D-054: il testo non contiene "inizia", quindi handle() chiede prima al laboratorio
+    // (classifyIntent) di distinguere "vuole iniziare" da "sta facendo una domanda" — qui la
+    // seconda coda simula quella classificazione, la terza la risposta strutturata vera e propria
+    // (reply/hasCorrection/correction, non più una semplice stringa).
+    queueResponse({ output_text: JSON.stringify({ choice: 'domanda' }) });
+    queueResponse({ output_text: JSON.stringify({ reply: 'Hai ragione: nel passaggio 2 manca l\'indicazione di scolare bene la zucca prima di frullarla, altrimenti la vellutata risulta troppo liquida.', hasCorrection: false, correction: null }) });
     const out = await handle(u, { text: 'secondo me al passaggio 2 manca un pezzo, avete dimenticato di dire di scolare la zucca' });
     assert.equal(u.state, 'mode'); // non è ripartito dalla ricetta: resta in attesa del segnale di inizio
     assert.equal(u.session.step, 0); // la guida non è avanzata
@@ -1134,10 +1139,75 @@ test('mode (full): un testo diverso da "inizia" dopo aver letto tutta la ricetta
     assert.ok(u.events.some(e => e.type === 'recipe_question_asked'));
     assert.ok(u.events.some(e => e.type === 'recipe_question_answered'));
 
-    // Il segnale esplicito di inizio funziona ancora normalmente.
+    // Il segnale esplicito di inizio funziona ancora normalmente (regola lessicale rapida, nessuna
+    // chiamata al laboratorio necessaria per riconoscerlo).
     const started = await handle(u, { text: 'Inizia la guida' });
     assert.equal(u.state, 'cooking');
     assert.match(started.text, /Ammorbidisci la zucca/);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('mode (full): una correzione reale segnalata dal laboratorio viene applicata al passaggio, non solo spiegata in chat (D-054)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('nlp-mode-full-correction1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'mi piace' }); // -> stato 'mode'
+    await handle(u, { text: 'fammi leggere tutto' }); // -> mode 'full'
+
+    queueResponse({ output_text: JSON.stringify({ choice: 'domanda' }) });
+    queueResponse({ output_text: JSON.stringify({
+      reply: 'Hai ragione: nel primo passaggio manca l\'indicazione di scolare bene la zucca prima di continuare.',
+      hasCorrection: true,
+      correction: { stepNumber: 1, field: 'action', correctedText: 'Cuoci la zucca a vapore finché è tenera al centro, poi scolala bene prima di procedere.' },
+    }) });
+    const out = await handle(u, { text: 'secondo me al primo passaggio manca di dire di scolare la zucca' });
+    assert.match(out.text, /scolare bene/);
+    const correctedEvent = u.events.find(e => e.type === 'recipe_step_corrected');
+    assert.ok(correctedEvent);
+    assert.equal(correctedEvent.payload.stepNumber, 1);
+    assert.equal(correctedEvent.payload.field, 'action');
+    assert.equal(u.events.find(e => e.type === 'recipe_question_answered').payload.corrected, true);
+
+    // Riprendendo la guida, il passaggio mostrato riflette davvero la correzione appena fatta,
+    // non il testo originale — è questo che il progettista intendeva con "deve recepire la
+    // correzione", non solo spiegarla in chat.
+    const started = await handle(u, { text: 'Inizia la guida' });
+    assert.equal(u.state, 'cooking');
+    assert.match(started.text, /scolala bene prima di procedere/);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('mode (full): una richiesta di riprendere la ricetta formulata senza la parola "inizia" viene comunque riconosciuta (D-054)', async () => {
+  installFetchMock();
+  try {
+    const u = newUser('nlp-mode-full-resume1', 'Tester');
+    await handle(u, { text: 'ciao' });
+    await handle(u, { text: '🍳 Ho gli ingredienti, cuciniamo' });
+    queueResponse(threeIdeas());
+    await handle(u, { text: '2 persone, 45 minuti, seppia' });
+    queueResponse(validLabDish());
+    await handle(u, { text: 'gourmet' });
+    await handle(u, { text: 'mi piace' }); // -> stato 'mode'
+    await handle(u, { text: 'fammi leggere tutto' }); // -> mode 'full'
+
+    // "riprendiamo la ricetta passo passo" non contiene "inizia": prima di D-054 sarebbe stato
+    // trattato come una domanda e sarebbe rimasto in attesa; ora il laboratorio lo classifica
+    // correttamente come richiesta di iniziare.
+    queueResponse({ output_text: JSON.stringify({ choice: 'inizia' }) });
+    const out = await handle(u, { text: 'va bene, riprendiamo la ricetta passo passo' });
+    assert.equal(u.state, 'cooking');
+    assert.match(out.text, /Ammorbidisci la zucca/);
+    assert.ok(u.events.some(e => e.type === 'full_read_intent_classified' && e.payload.choice === 'inizia'));
   } finally {
     restoreFetch();
   }

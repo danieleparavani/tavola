@@ -941,3 +941,25 @@ Due nuovi test in `test/engine.test.mjs` (uno end-to-end sulla segnalazione di u
 ### Limite dichiarato
 
 Il segnale di inizio resta lessicale, senza fallback `classifyIntent` come negli altri stati — coerente con lo stesso limite già accettato per "avanti"/"inizia" nello stato `cooking`. Nessun controllo editoriale verifica che la correzione proposta dal laboratorio sia davvero corretta. Non ancora verificato dal vivo su Telegram.
+
+## Failure osservato su Telegram reale — la correzione veniva spiegata ma non applicata al passaggio, il segnale di ripresa non riconosceva formulazioni diverse da "inizia" (11 settembre 2026)
+
+### Evidenza osservata
+
+Subito dopo il primo uso reale di D-053, il progettista ha scritto: "deve recepire la correzione e quando gli chiedo di riprendere la ricetta passo passo deve farlo. Deve capire cosa scrivo come se ci fosse una persona così sembra le brutte chatbot". Aveva ripetuto lo stesso test — "leggi tutto", segnalazione di un errore — e osservato due problemi: la spiegazione del laboratorio restava solo in chat, senza modificare il passaggio mostrato in seguito durante la guida; e la richiesta di riprendere, formulata con parole diverse da "inizia", non veniva riconosciuta.
+
+### Interpretazione
+
+Non un bug nuovo, ma i due limiti già dichiarati esplicitamente alla fine di D-053: (1) `answerRecipeQuestion` restituiva solo una stringa di spiegazione, senza alcun modo per `core/tavola.mjs` di sapere che un passaggio specifico andava corretto — la comprensione del laboratorio non usciva mai dalla singola risposta conversazionale; (2) il segnale di inizio restava puramente lessicale ("inizia"), senza il fallback `classifyIntent` già usato altrove (D-051) — qualunque formulazione equivalente ma diversa cadeva nel ramo domanda.
+
+### Decisione
+
+Vedi DECISIONS.md, D-054: `answerRecipeQuestion` restituisce ora un output strutturato (`reply`, `hasCorrection`, `correction`) invece di una stringa; quando il laboratorio riconosce un errore reale e specifico in un passaggio, la correzione viene applicata subito al piatto della sessione corrente (mai ai piatti editoriali condivisi), non solo spiegata. Il segnale di inizio ha ora un fallback `classifyIntent`, stesso pattern di D-051: la regola lessicale resta la scorciatoia rapida per il caso comune, il laboratorio classifica il significato quando non matcha.
+
+### Verifica
+
+Due nuovi test in `test/engine.test.mjs`: uno verifica che la correzione applicata compaia davvero nel passaggio quando si riprende la guida; l'altro verifica che una richiesta di ripresa senza la parola "inizia" venga comunque riconosciuta. Il test esistente di D-053 è stato aggiornato alla nuova firma strutturata. Suite completa: 111/111 test superati.
+
+### Limite dichiarato
+
+La correzione riguarda un solo campo di un solo passaggio per messaggio, non più elementi contemporaneamente. Nessun controllo editoriale verifica che la correzione proposta dal laboratorio sia davvero corretta. La correzione si applica solo al piatto generato di questa sessione, non viene ricordata se l'utente ricomincia da capo con lo stesso piatto. Non ancora verificato dal vivo su Telegram.

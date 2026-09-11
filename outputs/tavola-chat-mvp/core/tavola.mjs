@@ -92,6 +92,10 @@ export function willCallLab(user,text){
   // un testo che non è quel segnale ora chiama davvero il laboratorio (answerRecipeQuestion) —
   // prima veniva sempre scartato qui (mode==='full' rendeva l'espressione falsa a prescindere),
   // che è esattamente il comportamento sbagliato corretto in handle().
+  // D-054: la regola resta identica anche ora che il segnale di inizio ha un fallback classifyIntent
+  // oltre alla sola parola "inizia" — quando la regola lessicale rapida non matcha, handle() chiama
+  // comunque il laboratorio (prima solo per classificare l'intento, poi eventualmente anche per
+  // rispondere alla domanda), quindi "sto pensando" resta corretto in entrambi i casi.
   if(user.state==='mode')return !isIntentChoice(n)&&(user.session?.mode==='full'?!fullReadStartMatchesLexical(n):!modeMatchesLexical(n));
   if(user.state==='dplus')return !dplusMatchesLexical(n);
   return false;
@@ -265,7 +269,8 @@ export async function handle(user,input,{source='simulator'}={}){
   if(user.state==='mode'){
     if(isIntentChoice(n))return askRestartConfirmation(user,n,'mode')
     if(user.session.mode==='full'){
-      if(fullReadStartMatchesLexical(n)){user.state='cooking';return cookingReply(user)}
+      const startFullGuide=()=>{user.state='cooking';return cookingReply(user)};
+      if(fullReadStartMatchesLexical(n))return startFullGuide();
       // D-053: prima, qualunque testo scritto qui — anche una domanda o la segnalazione di un
       // errore reale nella ricetta appena letta — veniva ignorato e faceva ripartire la guida dal
       // primo passaggio senza mai consultare il laboratorio (il progettista: "ho scritto ma lui è
@@ -273,10 +278,35 @@ export async function handle(user,input,{source='simulator'}={}){
       // trattato come una domanda vera, a cui risponde il laboratorio con la ricetta intera come
       // contesto — non una risposta preconfezionata — e resta in questo stato finché l'utente non
       // conferma di voler iniziare.
+      // D-054: "inizia" da sola era troppo rigida — un modo equivalente ma diverso di chiedere di
+      // procedere (es. "riprendiamo la ricetta passo passo", "ok andiamo") veniva trattato come
+      // domanda invece che come conferma (il progettista: "quando gli chiedo di riprendere la
+      // ricetta passo passo deve farlo"). Stesso pattern già in uso altrove (D-051): la regola
+      // lessicale resta come scorciatoia rapida per il caso più comune, e solo se non matcha si
+      // chiede al laboratorio di classificare il vero intento tra le due sole opzioni valide qui.
+      const startChoice=await classifyIntent(text,[
+        {key:'inizia',description:'vuole iniziare o riprendere subito a cucinare passo per passo, seguendo la guida'},
+        {key:'domanda',description:'sta facendo una domanda, un\'osservazione o segnalando una possibile correzione sulla ricetta: non vuole ancora iniziare'},
+      ]);
+      event(user,'full_read_intent_classified',{text,choice:startChoice});
+      if(startChoice==='inizia')return startFullGuide();
       const dish=currentDish(user);
       event(user,'recipe_question_asked',{text});
-      const answer=await answerRecipeQuestion(dish,text);
-      event(user,'recipe_question_answered',{text});
+      const {reply:answer,hasCorrection,correction}=await answerRecipeQuestion(dish,text);
+      // D-054: se il laboratorio ha riconosciuto un errore reale e specifico in un passaggio, la
+      // correzione viene applicata subito al piatto di QUESTA sessione (mai al piatto condiviso
+      // dei tre esempi editoriali, che restano fixture di test, cfr. nota in cima al file) — non
+      // solo spiegata in chat. Così, quando l'utente riprende la guida, il passaggio mostrato
+      // riflette davvero la correzione, invece di ripetere il testo originale sbagliato.
+      if(hasCorrection&&correction&&user.session.generatedDish){
+        const step=user.session.generatedDish.steps[correction.stepNumber-1];
+        if(step&&Object.prototype.hasOwnProperty.call(step,correction.field)){
+          const before=step[correction.field];
+          step[correction.field]=correction.correctedText;
+          event(user,'recipe_step_corrected',{stepNumber:correction.stepNumber,field:correction.field,before,after:correction.correctedText});
+        }
+      }
+      event(user,'recipe_question_answered',{text,corrected:Boolean(hasCorrection)});
       return reply(answer,[['👣 Inizia la guida']]);
     }
     const d=currentDish(user);

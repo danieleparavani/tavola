@@ -217,16 +217,38 @@ export async function answerCookingDoubt(dish,step,doubt){
 // funzione dà al laboratorio la ricetta intera (non un singolo passaggio, a differenza di
 // answerCookingDoubt) come contesto per rispondere davvero a ciò che l'utente ha scritto, invece
 // di far ripartire silenziosamente la guida.
+// D-054: il progettista ha segnalato, dopo aver usato D-053 dal vivo, che una correzione reale
+// veniva sì spiegata in chat ma non "recepita": riprendendo la guida passo per passo, il testo
+// del passaggio restava quello originale, sbagliato. La risposta ora è strutturata (output JSON
+// vincolato, non testo libero) invece di una sola stringa: oltre a 'reply' (la spiegazione da
+// mostrare, come prima), il laboratorio dichiara esplicitamente se il messaggio segnala un errore
+// reale e specifico in uno dei passaggi elencati (hasCorrection + correction con il numero del
+// passaggio, il campo da correggere e il testo corretto per intero) oppure no (hasCorrection
+// false, correction null) — mai una correzione per un dubbio generico o una preferenza personale.
+// Chi chiama questa funzione (core/tavola.mjs) applica la correzione al piatto della sessione
+// corrente, così che il passaggio mostrato in seguito rifletta davvero la modifica.
+const recipeQuestionSchema={type:'object',additionalProperties:false,required:['reply','hasCorrection','correction'],properties:{
+  reply:{type:'string'},
+  hasCorrection:{type:'boolean'},
+  correction:{type:['object','null'],additionalProperties:false,required:['stepNumber','field','correctedText'],properties:{
+    stepNumber:{type:'integer',minimum:1,maximum:7},
+    field:{type:'string',enum:['action','observe','why','help']},
+    correctedText:{type:'string'}
+  }}
+}};
 export async function answerRecipeQuestion(dish,question){
-  const fallback='Non riesco a rispondere in modo specifico ora: puoi ripetere la domanda, oppure premere "Inizia la guida" per procedere.';
+  const fallback={reply:'Non riesco a rispondere in modo specifico ora: puoi ripetere la domanda, oppure premere "Inizia la guida" per procedere.',hasCorrection:false,correction:null};
   if(!labAvailable())return fallback;
-  const stepsText=dish.steps.map((s,i)=>`${i+1}. ${s.title} — ${s.action}`).join('\n');
-  const body={model:process.env.OPENAI_MODEL||'gpt-5-mini',reasoning:{effort:'low'},store:false,instructions:"Sei l'assistente tecnico di Tavola. L'utente ha appena letto per intero la ricetta proposta, prima di iniziare a cucinare, e ha scritto un'osservazione, una domanda o una possibile correzione invece di confermare di voler iniziare. Rispondi in italiano, al massimo 70 parole, in modo diretto e specifico su ciò che ha scritto, verificando i passaggi realmente presenti nella ricetta qui sotto. Se segnala un errore reale nella ricetta (un passaggio incoerente, un ingrediente o una quantità che non tornano), riconoscilo esplicitamente e spiega la correzione o il chiarimento; non limitarti a ripetere il passaggio. Non inventare percentuali, tempi precisi o fonti non presenti nella ricetta. Se il messaggio non ha a che fare con la ricetta, dillo chiaramente.",input:`Piatto: ${dish.name}\nTecnica dominante: ${dish.principle?.term||''}\nPassaggi:\n${stepsText}\nMessaggio dell'utente: ${question}`};
+  const stepsText=dish.steps.map((s,i)=>`${i+1}. ${s.title} — azione: ${s.action} — osserva: ${s.observe} — perché: ${s.why} — aiuto: ${s.help}`).join('\n');
+  const body={model:process.env.OPENAI_MODEL||'gpt-5-mini',reasoning:{effort:'low'},store:false,instructions:"Sei l'assistente tecnico di Tavola. L'utente ha appena letto per intero la ricetta proposta, prima di iniziare a cucinare, e ha scritto un'osservazione, una domanda o una possibile correzione invece di confermare di voler iniziare. Rispondi in 'reply', in italiano, al massimo 70 parole, in modo diretto e specifico su ciò che ha scritto, verificando i passaggi realmente presenti nella ricetta qui sotto. Se e SOLO SE segnala un errore reale e specifico in uno dei passaggi elencati (qualcosa di davvero incoerente, mancante o sbagliato nel testo del passaggio — non una preferenza personale o un dubbio generico), imposta hasCorrection=true e correction con: stepNumber (il numero del passaggio da correggere), field (quale campo di quel passaggio va corretto: action, observe, why oppure help) e correctedText (il TESTO INTERO e corretto che deve sostituire quel campo, non solo la parte cambiata o una nota a margine). Se non c'è un vero errore da correggere nel testo dei passaggi, imposta hasCorrection=false e correction=null. Non inventare percentuali, tempi precisi o fonti non presenti nella ricetta. Se il messaggio non ha a che fare con la ricetta, dillo chiaramente in reply e lascia hasCorrection=false.",input:`Piatto: ${dish.name}\nTecnica dominante: ${dish.principle?.term||''}\nPassaggi:\n${stepsText}\nMessaggio dell'utente: ${question}`,text:{format:{type:'json_schema',name:'tavola_recipe_question',strict:true,schema:recipeQuestionSchema}}};
   try{
     const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify(body)});
     if(!response.ok)return fallback;
     const data=await response.json();
-    return data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text||data.output_text||fallback;
+    const outputText=data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text||data.output_text;
+    if(!outputText)return fallback;
+    const parsed=JSON.parse(outputText);
+    return {reply:parsed.reply||fallback.reply,hasCorrection:Boolean(parsed.hasCorrection&&parsed.correction),correction:parsed.hasCorrection?parsed.correction:null};
   }catch(e){return fallback;}
 }
 
