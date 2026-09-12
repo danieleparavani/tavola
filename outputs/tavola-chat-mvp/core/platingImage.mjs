@@ -1,13 +1,21 @@
 import {renderPlating} from './platingRender.mjs';
+import {createCanvas, encodePNG, decodePNG} from './png.mjs';
+import {drawHandText, measureText, wrapText} from './handwriting.mjs';
 
 // D-065: l'immagine del piatto viene generata da un modello di immagini, non più disegnata da
 // regole. Tre vincoli, tutti ricavati dalle prove fatte prima di integrare:
 //
-// 1. NIENTE TITOLO NELL'IMMAGINE. Chiedendo una riga di testo grande in alto, il modello la
-//    taglia fuori campo (verificato due volte, anche con istruzioni esplicite sui margini) e la
-//    scrive in un carattere tipografico invece che a mano. Titolo e principio restano nel testo
-//    del messaggio, che li ha già. Le sole parole nell'immagine sono le etichette degli
-//    elementi: corte, e su quelle il modello è affidabile.
+// 1. IL MODELLO NON SCRIVE NESSUNA PAROLA. Prima gli erano affidate le etichette degli elementi,
+//    che sembravano abbastanza corte da riuscirgli sempre. Non è così: in una delle prime
+//    immagini reali ha disegnato quattro richiami per tre etichette, lasciando una linea che
+//    scende dal piatto e finisce nel nulla. È lo stesso difetto del titolo tagliato — quando
+//    decide lui quante parole e quante frecce mettere, ogni tanto ne perde una — e nessuna
+//    stretta del prompt lo elimina, la rende solo più rara (D-066). Quindi il modello dipinge
+//    soltanto, e ogni parola sul foglio la scrive il nostro codice, con l'alfabeto a mano di
+//    D-063, presa dallo schema: titolo in alto e legenda numerata in basso, nelle fasce di carta
+//    che aggiungiamo noi sopra e sotto il dipinto. Le frecce spariscono: non sappiamo dove il
+//    modello abbia messo gli elementi, e una freccia che punta al posto sbagliato è peggio di
+//    nessuna freccia.
 // 2. L'IMMAGINE È EVOCATIVA, NON AUTOREVOLE. Il modello può aggiungere un elemento, sbagliare
 //    una cottura o una disposizione. La fonte di verità resta il testo strutturato, che viaggia
 //    come didascalia. Per questo l'immagine non entra mai nella memoria delle competenze e non
@@ -51,26 +59,8 @@ const SAUCE_PHRASE={
   nessuna:'no sauce on the plate',
 };
 
-const MAX_LABELS=4;
-const MAX_LABEL_CHARS=30;
-
 function cleanName(name){
   return String(name||'').replace(/\s+/g,' ').trim();
-}
-
-// Le etichette sono scritte a mano dal modello: se sono lunghe le sbaglia o le taglia. Si tiene
-// la testa del nome, che è la parte che identifica l'elemento (stessa logica di foodStyle). La
-// punteggiatura viene tolta: "filetti di triglia, pelle in vista" diventa "filetti di triglia".
-function shortLabel(name){
-  const clean=cleanName(String(name||'').split(/[,;(]/)[0]).toLowerCase();
-  if(clean.length<=MAX_LABEL_CHARS)return clean;
-  const words=clean.split(' ');
-  let out='';
-  for(const w of words){
-    if((out?out.length+1:0)+w.length>MAX_LABEL_CHARS)break;
-    out=out?`${out} ${w}`:w;
-  }
-  return out||clean.slice(0,MAX_LABEL_CHARS);
 }
 
 export function platingPrompt(plating){
@@ -80,22 +70,21 @@ export function platingPrompt(plating){
     const how=SHAPE_PHRASE[e.shape]||'arranged neatly';
     return `${cleanName(e.element)}, ${how}, ${where}`;
   });
-  const labels=elements.slice(0,MAX_LABELS).map(e=>shortLabel(e.element));
   const sauce=SAUCE_PHRASE[plating?.sauceStyle]||SAUCE_PHRASE.nessuna;
   const texture=cleanName(plating?.textureNote);
   const finish=cleanName(plating?.finish);
 
   return [
     'Watercolour and ink illustration on textured off-white paper, in the style of a chef hand-drawn recipe concept sheet. Loose pencil linework, transparent washes with visible pigment edges and paper grain, hand-made feeling, no photorealism, no 3D render.',
-    `No title, no heading, no printed typography anywhere. The only words in the image are ${labels.length} small handwritten pencil annotations.`,
-    'Composition: the round plate sits in the middle of the sheet and occupies about half of its width, with plenty of bare paper all around it. Nothing touches the edges of the image.',
+    'NO TEXT AT ALL. No title, no heading, no labels, no annotations, no letters, no numbers, no arrows and no leader lines anywhere in the image. This is a painting only.',
+    'Composition: the round plate sits in the middle of the sheet and occupies about two thirds of its width, with bare paper all around it. Nothing touches the edges of the image.',
     'Subject: a round white ceramic plate seen from a three-quarter angle, holding these elements, described in Italian and to be drawn as they really look:',
     described.map(d=>`- ${d}`).join('\n'),
     `On the plate, ${sauce}.`,
     texture?`Texture to make visible: ${texture}.`:'',
     finish?`Finish: ${finish}.`:'',
-    labels.length?`Small handwritten Italian pencil annotations in the empty paper around the plate, each with a thin arrow pointing to its element: ${labels.join(', ')}. A small watercolour colour-swatch strip in the bottom right corner.`:'',
-    'Warm natural food colours, no logos, no brand names, no people, no hands, no cutlery.',
+    'A small watercolour colour-swatch strip in the bottom right corner, made of plain painted squares with no writing next to them.',
+    'Warm natural food colours, no logos, no brand names, no people, no hands, no cutlery, no text.',
   ].filter(Boolean).join('\n');
 }
 
@@ -125,14 +114,79 @@ async function generate(prompt){
   }finally{clearTimeout(timer)}
 }
 
-// Restituisce sempre un PNG: quello generato se possibile, altrimenti la scheda a regole.
+// D-066: le parole le scriviamo noi. Il dipinto arriva senza una lettera; qui viene rimesso in un
+// canvas e incorniciato fra due fasce di carta, titolo sopra e legenda numerata sotto, scritti con
+// l'alfabeto a mano di D-063 a partire dai campi dello schema. La numerazione è la stessa della
+// didascalia (platingText), così l'elenco sul foglio e quello nel messaggio si corrispondono.
+const INK=[86,78,70];
+const TITLE_SIZE=44, LEGEND_SIZE=30, RULE=[120,110,98];
+
+// Il colore della carta viene preso dal dipinto stesso (mediana grossolana dei quattro angoli),
+// così le fasce non sembrano incollate sopra un foglio di tinta diversa.
+function paperColor(image){
+  const corners=[[4,4],[image.width-5,4],[4,image.height-5],[image.width-5,image.height-5]];
+  const sum=[0,0,0];
+  for(const [x,y] of corners){
+    const i=(y*image.width+x)*4;
+    sum[0]+=image.pixels[i];sum[1]+=image.pixels[i+1];sum[2]+=image.pixels[i+2];
+  }
+  return sum.map(v=>Math.round(v/corners.length));
+}
+
+export function composeSheet(pngBuffer,plating,meta={}){
+  const image=decodePNG(pngBuffer);
+  const paper=paperColor(image);
+  const width=image.width;
+  const margin=Math.round(width*0.06);
+  const textWidth=width-margin*2;
+
+  const title=cleanName(meta.title);
+  const titleLines=title?wrapText(title.toLowerCase(),TITLE_SIZE,textWidth).slice(0,2):[];
+  const topBand=titleLines.length?Math.round(TITLE_SIZE*0.5)+titleLines.length*Math.round(TITLE_SIZE*1.15)+Math.round(TITLE_SIZE*0.6):0;
+
+  const items=(plating?.clockLayout||[]).map(e=>cleanName(e?.element)).filter(Boolean);
+  const legendLines=items.map((name,i)=>`${i+1}. ${name.toLowerCase()}`);
+  const bottomBand=legendLines.length?Math.round(LEGEND_SIZE*0.9)+legendLines.length*Math.round(LEGEND_SIZE*1.45)+Math.round(LEGEND_SIZE*0.8):0;
+
+  const canvas=createCanvas(width,topBand+image.height+bottomBand,[...paper,255]);
+  image.pixels.copy(canvas.pixels,topBand*width*4);
+
+  let y=Math.round(TITLE_SIZE*1.1);
+  for(const line of titleLines){
+    drawHandText(canvas,line,margin,y,TITLE_SIZE,{color:INK,alpha:0.8,weight:1.25,seed:7+y});
+    y+=Math.round(TITLE_SIZE*1.15);
+  }
+  if(titleLines.length){
+    const ruleY=topBand-Math.round(TITLE_SIZE*0.3);
+    const ruleWidth=Math.min(textWidth,Math.max(...titleLines.map(l=>measureText(l,TITLE_SIZE))));
+    for(let x=0;x<ruleWidth&&margin+x<width;x++)for(let t=0;t<2;t++)canvas.pixels.set([...RULE,255],((ruleY+t)*width+margin+x)*4);
+  }
+
+  let ly=topBand+image.height+Math.round(LEGEND_SIZE*1.5);
+  for(const line of legendLines){
+    drawHandText(canvas,line,margin,ly,LEGEND_SIZE,{color:INK,alpha:0.72,seed:31+ly});
+    ly+=Math.round(LEGEND_SIZE*1.45);
+  }
+  return encodePNG(canvas);
+}
+
+// Restituisce sempre un PNG: il dipinto con le parole scritte da noi se possibile, altrimenti la
+// scheda a regole. Se la composizione fallisce (PNG in un formato che il decodificatore non
+// gestisce) resta comunque il dipinto, che è già utile anche senza legenda.
 export async function platingPhoto(plating,meta={}){
   const fallback=()=>renderPlating(plating,meta);
   if(!imageAvailable())return fallback();
+  let painted;
   try{
-    return await generate(platingPrompt(plating));
+    painted=await generate(platingPrompt(plating));
   }catch(error){
     console.error('Immagine del piatto non generata, uso la scheda a regole:',error?.message||error);
     return fallback();
+  }
+  try{
+    return composeSheet(painted,plating,meta);
+  }catch(error){
+    console.error('Parole non scritte sul dipinto, invio il dipinto da solo:',error?.message||error);
+    return painted;
   }
 }

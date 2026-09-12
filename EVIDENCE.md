@@ -1214,3 +1214,17 @@ D-065: immagine generata, dichiarata evocativa, senza titolo, fuori dal percorso
 - `platingPhoto` eseguita sulla VM con la chiave reale: immagine generata, 1.997.104 byte in 30,7 secondi.
 - L'immagine mostra il piatto corretto, con "filetti di triglia", "pomodoro crudo" e "pane aromatico" scritti bene e le frecce sugli elementi giusti.
 - **Scostamento osservato:** il pane aromatico, dichiarato nello schema come `linea` (riga di briciole sul piatto), è stato disegnato come una fetta di pane gratinata. È esattamente il limite dichiarato in D-065: la corrispondenza è plausibile, non garantita. Il testo strutturato, che resta la fonte autorevole, diceva la cosa giusta.
+
+### Difetto trovato dal progettista nella prima immagine di produzione
+
+- Nell'immagine generata dalla VM il modello ha disegnato **quattro richiami per tre etichette**: dal bordo del piatto scende una linea che finisce nel nulla, senza nome.
+- Difetto trovato a occhio dal progettista, non da un controllo automatico: nessuna verifica lo avrebbe intercettato.
+- È lo stesso meccanismo del titolo tagliato: quando il modello decide quante parole e quante frecce mettere, ogni tanto ne perde una.
+
+### Interpretazione
+
+L'assunzione di D-065 — che le etichette, essendo corte, fossero al sicuro — era sbagliata. Non conta la lunghezza delle parole, conta chi decide quante metterne. Un'immagine che omette il nome di un ingrediente è peggio di un'immagine senza nomi, perché sembra completa.
+
+### Decisione derivata
+
+D-066: il modello dipinge e basta; titolo e legenda numerata li scrive il codice sulle fasce di carta aggiunte sopra e sotto il dipinto.

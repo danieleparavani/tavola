@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 // comportarsi come prima di D-065, cioè restituire la scheda deterministica a regole.
 delete process.env.OPENAI_API_KEY;
 
-const { platingPrompt, platingPhoto, imageAvailable } = await import('../core/platingImage.mjs');
+const { platingPrompt, platingPhoto, composeSheet, imageAvailable } = await import('../core/platingImage.mjs');
 const { renderPlating } = await import('../core/platingRender.mjs');
+const { decodePNG, createCanvas, encodePNG } = await import('../core/png.mjs');
 
 const plating = {
   clockLayout: [
@@ -20,12 +21,15 @@ const plating = {
   finish: 'filo d’olio a crudo',
 };
 
-// D-065, vincolo 1: il modello taglia i titoli grandi e li scrive in carattere tipografico.
-// Il prompt deve vietare esplicitamente titoli e testo stampato.
-test('il prompt vieta titoli e tipografia dentro l\'immagine', () => {
+// D-066: il modello non scrive più nessuna parola. Aveva disegnato quattro richiami per tre
+// etichette, lasciando una linea che finisce nel nulla: finché decide lui quante parole e quante
+// frecce mettere, ogni tanto ne perde una. Il prompt deve vietare ogni testo e ogni freccia.
+test('il prompt vieta ogni testo, etichetta e freccia dentro l\'immagine', () => {
   const prompt = platingPrompt(plating);
-  assert.match(prompt, /No title, no heading, no printed typography/);
-  assert.doesNotMatch(prompt, /Filetti di triglia in padella/i);
+  assert.match(prompt, /NO TEXT AT ALL/);
+  assert.match(prompt, /no arrows and no leader lines/);
+  assert.doesNotMatch(prompt, /pointing to its element/);
+  assert.doesNotMatch(prompt, /handwritten Italian pencil annotations/);
 });
 
 test('il prompt descrive ogni elemento con la sua posizione e la sua forma', () => {
@@ -39,27 +43,51 @@ test('il prompt descrive ogni elemento con la sua posizione e la sua forma', () 
   assert.match(prompt, /il pane deve restare croccante/);
 });
 
-// Le etichette sono scritte a mano: se sono lunghe il modello le sbaglia. Vanno accorciate, ma
-// restando parole intere e riconoscibili.
-test('le etichette vengono accorciate a parole intere e non superano quattro', () => {
-  const prompt = platingPrompt({ ...plating, clockLayout: [
-    ...plating.clockLayout,
-    { element: 'prezzemolo', position: '9', shape: 'mucchio' },
-    { element: 'quinto elemento che non deve comparire', position: '3', shape: 'mucchio' },
-  ] });
-  const labels = prompt.match(/pointing to its element: ([^.]+)\./)[1].split(', ');
-  assert.equal(labels.length, 4);
-  assert.ok(labels.every(l => l.length <= 30), 'nessuna etichetta più lunga del limite');
-  assert.ok(labels.every(l => !l.endsWith(' ')), 'nessuna etichetta troncata a metà parola');
-  assert.ok(labels.includes('prezzemolo'));
-  assert.doesNotMatch(prompt, /pointing to its element:[^.]*quinto elemento/);
-});
-
 // D-014: nessun catalogo chiuso. Uno schema minimo o con campi mancanti non deve rompere nulla.
 test('il prompt regge uno schema minimo senza campi facoltativi', () => {
   const prompt = platingPrompt({ clockLayout: [{ element: 'x', position: 'centro', shape: 'mucchio' }] });
   assert.ok(prompt.length > 100);
   assert.doesNotMatch(prompt, /undefined/);
+});
+
+// D-066: per scrivere sopra il dipinto bisogna prima riportarlo in un canvas. Il decodificatore
+// deve restituire esattamente i pixel che l'encoder aveva scritto.
+test('decodePNG restituisce gli stessi pixel che encodePNG aveva scritto', () => {
+  const canvas = createCanvas(7, 5, [200, 150, 100, 255]);
+  canvas.pixels.set([10, 20, 30, 255], (2 * 7 + 3) * 4);
+  const decoded = decodePNG(encodePNG(canvas));
+  assert.equal(decoded.width, 7);
+  assert.equal(decoded.height, 5);
+  assert.deepEqual(Buffer.from(decoded.pixels), Buffer.from(canvas.pixels));
+});
+
+test('decodePNG rifiuta un buffer che non è un PNG, invece di restituire pixel casuali', () => {
+  assert.throws(() => decodePNG(Buffer.from('questo non è un png')), /non è un PNG/);
+});
+
+// Il cuore di D-066: ogni parola sul foglio viene dallo schema, non dal modello. La prova è che
+// la scheda composta è più alta del dipinto (le due fasce di carta) e che cambia se cambiano i
+// nomi degli elementi o il titolo — cioè che quelle parole sono davvero state scritte.
+test('composeSheet aggiunge le fasce con titolo e legenda scritti dal nostro codice', () => {
+  const painted = encodePNG(createCanvas(200, 200, [245, 240, 225, 255]));
+  const meta = { title: 'Filetti di triglia' };
+  const sheet = decodePNG(composeSheet(painted, plating, meta));
+  assert.equal(sheet.width, 200);
+  assert.ok(sheet.height > 200, 'la scheda deve essere più alta del dipinto');
+
+  const altriNomi = decodePNG(composeSheet(painted, { ...plating, clockLayout: [{ element: 'branzino' }, { element: 'finocchio' }, { element: 'arancia' }] }, meta));
+  assert.notDeepEqual(Buffer.from(sheet.pixels), Buffer.from(altriNomi.pixels), 'i nomi degli elementi devono comparire davvero');
+
+  const altroTitolo = decodePNG(composeSheet(painted, plating, { title: 'Tutt\'altro piatto' }));
+  assert.notDeepEqual(Buffer.from(sheet.pixels), Buffer.from(altroTitolo.pixels), 'il titolo deve comparire davvero');
+});
+
+test('composeSheet è deterministica e regge un piatto senza titolo', () => {
+  const painted = encodePNG(createCanvas(120, 90, [245, 240, 225, 255]));
+  assert.deepEqual(composeSheet(painted, plating, { title: 'x' }), composeSheet(painted, plating, { title: 'x' }));
+  const senzaTitolo = decodePNG(composeSheet(painted, plating, {}));
+  assert.equal(senzaTitolo.width, 120);
+  assert.ok(senzaTitolo.height > 90, 'resta la fascia della legenda');
 });
 
 // Vincolo 3 + fallback: senza chiave non si chiama la rete e si torna alla scheda a regole.

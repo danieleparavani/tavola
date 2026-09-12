@@ -745,3 +745,74 @@ export function ribbonPolygon(points, widthAt) {
   }
   return [...left, ...right.reverse()];
 }
+
+// D-066: decodifica PNG. Serve perché l'immagine del piatto non la disegniamo più noi: arriva
+// dipinta da un modello, e le parole vanno scritte sopra dal nostro codice. Per scriverci sopra
+// bisogna prima riportarla in un canvas RGBA. Supporta ciò che serve davvero — profondità 8 bit,
+// nessun interlacciamento, scala di grigi, RGB, palette e i due formati con alpha — e solleva
+// un errore su tutto il resto, dove chi chiama ricade sulla scheda a regole.
+export function decodePNG(buffer) {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  for (let i = 0; i < 8; i++) if (buffer[i] !== signature[i]) throw new Error('non è un PNG');
+  let offset = 8, width = 0, height = 0, depth = 0, colorType = 0, interlace = 0;
+  let palette = null, transparency = null;
+  const idat = [];
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    const data = buffer.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0); height = data.readUInt32BE(4);
+      depth = data[8]; colorType = data[9]; interlace = data[12];
+    } else if (type === 'PLTE') palette = Buffer.from(data);
+    else if (type === 'tRNS') transparency = Buffer.from(data);
+    else if (type === 'IDAT') idat.push(Buffer.from(data));
+    else if (type === 'IEND') break;
+    offset += 12 + length;
+  }
+  if (depth !== 8) throw new Error(`profondità ${depth} non supportata`);
+  if (interlace !== 0) throw new Error('PNG interlacciato non supportato');
+  const CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+  const channels = CHANNELS[colorType];
+  if (!channels) throw new Error(`color type ${colorType} non supportato`);
+  if (colorType === 3 && !palette) throw new Error('PNG con palette senza PLTE');
+
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const stride = width * channels;
+  const bpp = channels;
+  const lines = Buffer.alloc(stride * height);
+  let previous = Buffer.alloc(stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    const out = lines.subarray(y * stride, (y + 1) * stride);
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? out[x - bpp] : 0, b = previous[x], c = x >= bpp ? previous[x - bpp] : 0;
+      let value = line[x];
+      if (filter === 1) value += a;
+      else if (filter === 2) value += b;
+      else if (filter === 3) value += (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        value += (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+      } else if (filter !== 0) throw new Error(`filtro ${filter} sconosciuto`);
+      out[x] = value & 0xff;
+    }
+    previous = out;
+  }
+
+  const pixels = Buffer.alloc(width * height * 4, 255);
+  for (let i = 0; i < width * height; i++) {
+    const s = i * channels, d = i * 4;
+    if (colorType === 0) { pixels[d] = pixels[d + 1] = pixels[d + 2] = lines[s]; }
+    else if (colorType === 4) { pixels[d] = pixels[d + 1] = pixels[d + 2] = lines[s]; pixels[d + 3] = lines[s + 1]; }
+    else if (colorType === 2) { pixels[d] = lines[s]; pixels[d + 1] = lines[s + 1]; pixels[d + 2] = lines[s + 2]; }
+    else if (colorType === 6) { pixels[d] = lines[s]; pixels[d + 1] = lines[s + 1]; pixels[d + 2] = lines[s + 2]; pixels[d + 3] = lines[s + 3]; }
+    else { // palette
+      const index = lines[s] * 3;
+      pixels[d] = palette[index]; pixels[d + 1] = palette[index + 1]; pixels[d + 2] = palette[index + 2];
+      if (transparency && lines[s] < transparency.length) pixels[d + 3] = transparency[lines[s]];
+    }
+  }
+  return { width, height, pixels };
+}
