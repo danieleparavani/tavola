@@ -200,6 +200,220 @@ export function drawDigit(canvas, x, y, digit, scale, rgba) {
   }
 }
 
+// D-060: primitive per un'illustrazione (non più uno schema geometrico): ellissi con
+// ombreggiatura sferica e punto luce, poligoni con antialias, rumore deterministico per le
+// texture degli ingredienti, vignettatura del piano. Sempre puro JS senza dipendenze.
+
+export { lerpColor };
+
+// Accesso diretto a un pixel con blending alpha: serve alle texture (granelli, venature) che
+// disegnano tanti punti minuscoli senza passare da una primitiva geometrica.
+export function paint(canvas, x, y, rgba) { setPixel(canvas, x, y, rgba); }
+
+// Generatore pseudocasuale deterministico (mulberry32): le texture devono essere sempre identiche
+// per lo stesso piatto — D-048 richiede che la stessa ricetta produca sempre la stessa immagine.
+export function makeRng(seed) {
+  let a = (seed >>> 0) || 1;
+  return function rng() {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function hashString(text) {
+  let h = 2166136261;
+  for (let i = 0; i < String(text).length; i++) { h ^= String(text).charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+// Ellisse con ombreggiatura "sferica": il colore chiaro sta nel punto luce (hx,hy, in coordinate
+// normalizzate -1..1 dentro l'ellisse), quello scuro sul lato opposto, con un ulteriore
+// scurimento sul bordo che dà l'impressione di curvatura. Bordi antialiasati.
+export function fillEllipseShaded(canvas, cx, cy, rx, ry, light, dark, rotationRad = 0, hx = -0.45, hy = -0.5) {
+  const cos = Math.cos(-rotationRad), sin = Math.sin(-rotationRad);
+  const span = Math.max(rx, ry) + 2;
+  const feather = Math.max(1, Math.min(rx, ry));
+  for (let y = Math.floor(cy - span); y <= Math.ceil(cy + span); y++) {
+    for (let x = Math.floor(cx - span); x <= Math.ceil(cx + span); x++) {
+      const dx = x - cx, dy = y - cy;
+      const rxr = dx * cos - dy * sin, ryr = dx * sin + dy * cos;
+      const nx = rxr / rx, ny = ryr / ry;
+      const d = Math.sqrt(nx * nx + ny * ny);
+      if (d > 1 + 1.5 / feather) continue;
+      const dh = Math.min(1, Math.hypot(nx - hx, ny - hy) / 1.7);
+      let color = lerpColor(light, dark, dh);
+      if (d > 0.72) { // scurimento di bordo: fa leggere il volume invece di una macchia piatta
+        const edge = Math.min(1, (d - 0.72) / 0.28);
+        color = lerpColor(color, [Math.round(dark[0] * 0.72), Math.round(dark[1] * 0.72), Math.round(dark[2] * 0.72), color[3]], edge * 0.55);
+      }
+      const alpha = d <= 1 ? (color[3] ?? 255) : (color[3] ?? 255) * Math.max(0, 1 - (d - 1) * feather);
+      setPixel(canvas, x, y, [color[0], color[1], color[2], Math.round(alpha)]);
+    }
+  }
+}
+
+function pointInPolygon(px, py, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// Poligono pieno con antialias per supersampling 2x2: serve alle forme che non sono ellissi
+// (spicchi di agrume, dadi di pomodoro, gusci).
+export function fillPolygon(canvas, pts, rgba) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of pts) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+  const offsets = [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
+  for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
+    for (let x = Math.floor(minX); x <= Math.ceil(maxX); x++) {
+      let hits = 0;
+      for (const [ox, oy] of offsets) if (pointInPolygon(x + ox, y + oy, pts)) hits++;
+      if (!hits) continue;
+      setPixel(canvas, x, y, [rgba[0], rgba[1], rgba[2], Math.round((rgba[3] ?? 255) * hits / 4)]);
+    }
+  }
+}
+
+// Ombra morbida calcolata per pixel: sostituisce le passate concentriche di fillEllipseSoft, che
+// lasciavano anelli visibili (bande) invece di una sfumatura continua.
+export function fillEllipseShadowSmooth(canvas, cx, cy, rx, ry, rgb, maxAlpha, softness = 0.55) {
+  for (let y = Math.floor(cy - ry) - 1; y <= Math.ceil(cy + ry) + 1; y++) {
+    for (let x = Math.floor(cx - rx) - 1; x <= Math.ceil(cx + rx) + 1; x++) {
+      const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
+      if (d >= 1) continue;
+      const t = Math.min(1, (1 - d) / softness);
+      setPixel(canvas, x, y, [...rgb, Math.round(maxAlpha * t * t)]);
+    }
+  }
+}
+
+// Ombra interna lungo il bordo di un'ellisse, più marcata dal lato della luce: è ciò che fa
+// leggere la conca del piatto come incassata invece che disegnata.
+export function fillEllipseInnerShadow(canvas, cx, cy, rx, ry, width, rgb, maxAlpha, dirX = -0.7, dirY = -0.7) {
+  for (let y = Math.floor(cy - ry) - 1; y <= Math.ceil(cy + ry) + 1; y++) {
+    for (let x = Math.floor(cx - rx) - 1; x <= Math.ceil(cx + rx) + 1; x++) {
+      const nx = (x - cx) / rx, ny = (y - cy) / ry;
+      const d = Math.hypot(nx, ny);
+      if (d >= 1) continue;
+      const depth = Math.max(0, 1 - (1 - d) / (width / Math.min(rx, ry)));
+      if (depth <= 0) continue;
+      const facing = Math.max(0, (nx * dirX + ny * dirY) / (d || 1));
+      setPixel(canvas, x, y, [...rgb, Math.round(maxAlpha * depth * depth * (0.35 + 0.65 * facing))]);
+    }
+  }
+}
+
+// Nastro continuo lungo una polilinea, calcolato come campo di distanza: una sola passata di
+// alpha per pixel, quindi niente strisce dove i segmenti si sovrappongono (difetto della
+// versione a segmenti sovrapposti).
+export function fillRibbon(canvas, points, widthAt, colorAt, alpha = 255) {
+  if (points.length < 2) return;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, maxW = 0;
+  for (let i = 0; i < points.length; i++) {
+    const w = widthAt(i / (points.length - 1));
+    maxW = Math.max(maxW, w);
+    minX = Math.min(minX, points[i].x); maxX = Math.max(maxX, points[i].x);
+    minY = Math.min(minY, points[i].y); maxY = Math.max(maxY, points[i].y);
+  }
+  const pad = maxW / 2 + 2;
+  for (let y = Math.floor(minY - pad); y <= Math.ceil(maxY + pad); y++) {
+    for (let x = Math.floor(minX - pad); x <= Math.ceil(maxX + pad); x++) {
+      let best = Infinity, bestT = 0;
+      for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i], b = points[i + 1];
+        const vx = b.x - a.x, vy = b.y - a.y;
+        const len2 = vx * vx + vy * vy || 1;
+        let t = ((x - a.x) * vx + (y - a.y) * vy) / len2;
+        t = Math.max(0, Math.min(1, t));
+        const dx = x - (a.x + vx * t), dy = y - (a.y + vy * t);
+        const d = Math.hypot(dx, dy);
+        if (d < best) { best = d; bestT = (i + t) / (points.length - 1); }
+      }
+      const half = widthAt(bestT) / 2;
+      if (best > half + 1) continue;
+      const cov = Math.min(1, Math.max(0, half + 0.5 - best));
+      const color = colorAt(bestT, best / (half || 1));
+      setPixel(canvas, x, y, [color[0], color[1], color[2], Math.round((color[3] ?? alpha) * cov)]);
+    }
+  }
+}
+
+// Poligono pieno con ombreggiatura di volume: il colore chiaro sta verso il punto luce e il
+// bordo si scurisce man mano che ci si avvicina al contorno. Serve per le forme organiche
+// (tranci, spicchi, dadi, gusci) che un'ellisse non sa rappresentare.
+export function fillPolygonShaded(canvas, pts, light, dark, opts = {}) {
+  const { hx = -0.45, hy = -0.55, rim = 0.45, alpha = 255 } = opts;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, cx = 0, cy = 0;
+  for (const [x, y] of pts) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    cx += x / pts.length; cy += y / pts.length;
+  }
+  const halfW = (maxX - minX) / 2 || 1, halfH = (maxY - minY) / 2 || 1;
+  const edgeScale = Math.min(halfW, halfH);
+  const offsets = [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
+  for (let y = Math.floor(minY) - 1; y <= Math.ceil(maxY) + 1; y++) {
+    for (let x = Math.floor(minX) - 1; x <= Math.ceil(maxX) + 1; x++) {
+      let hits = 0;
+      for (const [ox, oy] of offsets) if (pointInPolygon(x + ox, y + oy, pts)) hits++;
+      if (!hits) continue;
+      let edgeDist = Infinity;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const [ax, ay] = pts[j], [bx, by] = pts[i];
+        const vx = bx - ax, vy = by - ay;
+        const len2 = vx * vx + vy * vy || 1;
+        let t = ((x - ax) * vx + (y - ay) * vy) / len2;
+        t = Math.max(0, Math.min(1, t));
+        edgeDist = Math.min(edgeDist, Math.hypot(x - (ax + vx * t), y - (ay + vy * t)));
+      }
+      const nx = (x - cx) / halfW, ny = (y - cy) / halfH;
+      const dh = Math.min(1, Math.hypot(nx - hx, ny - hy) / 1.8);
+      let color = lerpColor(light, dark, dh);
+      const rimT = Math.max(0, 1 - edgeDist / (edgeScale * rim));
+      if (rimT > 0) color = lerpColor(color, [Math.round(dark[0] * 0.7), Math.round(dark[1] * 0.7), Math.round(dark[2] * 0.7), color[3]], rimT * rimT * 0.6);
+      setPixel(canvas, x, y, [color[0], color[1], color[2], Math.round((color[3] ?? alpha) * hits / 4)]);
+    }
+  }
+}
+
+// Arco luminoso continuo sul bordo del piatto (riflesso della luce sulla ceramica): con i
+// pallini sovrapposti si vedeva una linea tratteggiata.
+export function fillArcGlow(canvas, cx, cy, rx, ry, thickness, a0, a1, rgb, maxAlpha) {
+  for (let y = Math.floor(cy - ry - thickness); y <= Math.ceil(cy + ry + thickness); y++) {
+    for (let x = Math.floor(cx - rx - thickness); x <= Math.ceil(cx + rx + thickness); x++) {
+      const nx = (x - cx) / rx, ny = (y - cy) / ry;
+      const d = Math.hypot(nx, ny);
+      const radial = Math.abs(d - 1) * Math.min(rx, ry);
+      if (radial > thickness) continue;
+      let a = Math.atan2(ny, nx);
+      let da = Math.atan2(Math.sin(a - (a0 + a1) / 2), Math.cos(a - (a0 + a1) / 2));
+      const halfSpan = Math.abs(Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0))) / 2 || 0.01;
+      if (Math.abs(da) > halfSpan) continue;
+      const fadeAngle = Math.cos((da / halfSpan) * Math.PI / 2);
+      const fadeRadial = 1 - radial / thickness;
+      setPixel(canvas, x, y, [...rgb, Math.round(maxAlpha * fadeAngle * fadeRadial * fadeRadial)]);
+    }
+  }
+}
+
+// Vignettatura del piano d'appoggio: scurisce gli angoli e concentra lo sguardo sul piatto,
+// come una luce zenitale su un tavolo.
+export function applyVignette(canvas, cx, cy, radius, strength, rgb = [40, 28, 16]) {
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const d = Math.hypot((x - cx) / radius, (y - cy) / radius);
+      if (d <= 0.55) continue;
+      const t = Math.min(1, (d - 0.55) / 0.9);
+      setPixel(canvas, x, y, [...rgb, Math.round(strength * t * t)]);
+    }
+  }
+}
+
 // Etichetta numerata rotonda (es. "①") accanto a un elemento del piatto: stesso numero della
 // riga corrispondente in platingText, cosi l'immagine si legge da sola senza dover indovinare
 // quale forma astratta corrisponda a quale ingrediente.

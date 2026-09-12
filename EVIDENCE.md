@@ -1073,3 +1073,25 @@ Rendering di più combinazioni (1-5 elementi, ogni forma, ogni stile di salsa) e
 ### Limite dichiarato
 
 Resta uno schema geometrico astratto, non un disegno figurativo del piatto reale (scelta invariata di D-048). Il font bitmap copre solo le cifre 0-9, non può scrivere il nome dell'ingrediente sull'immagine. Non ancora verificato dal vivo su Telegram, incluso se la dimensione maggiore dell'immagine (600×600, prima 480×480) crei problemi su client reali.
+
+## Giudizio sul disegno dell'impiattamento dopo D-059 (12 settembre 2026)
+
+### Evidenza osservata
+
+Dopo il deploy di D-059, il progettista ha scritto: "immagine brutta colori brutti livemente meglio di prima ma siamo lontani sul disegno. crea un disegno realistico, non una foto perchè non credo sei in grado". Il miglioramento di leggibilità è stato riconosciuto ("leggermente meglio"), ma il disegno nel suo complesso è stato giudicato ancora inadeguato.
+
+### Interpretazione
+
+D-059 aveva corretto il contrasto e il volume, non l'assenza di informazione: qualunque ingrediente era la stessa macchia marrone, mentre il nome reale dell'ingrediente era già disponibile nel campo `element` dello schema e veniva ignorato. La distinzione posta dal progettista fra "disegno realistico" e "foto" corrisponde a un limite tecnico reale: un'illustrazione calcolata da regole è ottenibile e resta deterministica, una fotografia richiederebbe generazione AI di immagini, esclusa da D-048.
+
+### Decisione
+
+Vedi DECISIONS.md, D-060: colore e grana derivati dal nome dell'ingrediente (nuovo `core/foodStyle.mjs`), piatto in prospettiva su piano scuro, undici rese diverse per tipo di ingrediente, ordinamento per profondità, colore della salsa dedotto dagli elementi. Fondo del disegno calcolato una volta sola e riusato: 323 ms → 86 ms per immagine.
+
+### Verifica
+
+Piatti di natura diversa renderizzati e ispezionati visivamente, tutte le 25 combinazioni forma × salsa, determinismo verificato sui byte. Sei nuovi test sulle corrispondenze ingrediente → resa. Due difetti reali trovati dai test prima del deploy: "crema di zucchine" classificata come verdura a dadi, e "fermentato" che contiene "menta" e faceva finire un ingrediente qualunque fra le erbe. Suite completa: 128/128 test superati.
+
+### Limite dichiarato
+
+Resta un'illustrazione, non una fotografia. La mappa degli ingredienti copre le famiglie più comuni ma è incompleta e testuale: un nome insolito riceve una resa neutra. Piatti senza struttura visiva chiara (zuppe, fritture miste) restano rappresentati poveramente. Non ancora verificato dal vivo su Telegram.
