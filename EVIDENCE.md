@@ -1095,3 +1095,25 @@ Piatti di natura diversa renderizzati e ispezionati visivamente, tutte le 25 com
 ### Limite dichiarato
 
 Resta un'illustrazione, non una fotografia. La mappa degli ingredienti copre le famiglie più comuni ma è incompleta e testuale: un nome insolito riceve una resa neutra. Piatti senza struttura visiva chiara (zuppe, fritture miste) restano rappresentati poveramente. Non ancora verificato dal vivo su Telegram.
+
+## Attributi visivi dichiarati dal laboratorio (12 settembre 2026)
+
+### Evidenza osservata
+
+Dopo il deploy di D-060 il progettista ha chiesto come superare il limite dichiarato e, fra quattro direzioni proposte, ha scelto quella degli attributi visivi dichiarati dal laboratorio.
+
+### Interpretazione
+
+La mappa di parole chiave introdotta in D-060 era un catalogo chiuso spostato dal lato del disegno, in contrasto con D-014: fuori lista, l'ingrediente riceveva una resa neutra. Il pattern corretto era già nel progetto (D-012): il modello sceglie fra opzioni fissate esternamente invece di decidere liberamente.
+
+### Decisione
+
+Vedi DECISIONS.md, D-061: ogni elemento dichiara `grain` e `color` da enum importati dal renderer; la mappa locale diventa verificatore e vince solo dove riconosce la testa del nome dell'ingrediente.
+
+### Verifica
+
+Sei nuovi test; suite completa 134/134. Due difetti reali trovati dai test prima del deploy: "quinoa soffiata al pepe di Sichuan" disegnata come pepe rosso (la mappa agganciava un complemento del nome) e "branzino al limone" disegnato come spicchio di agrume (fra due ingredienti riconosciuti vinceva l'ordine dell'elenco interno, non quello delle parole). Verifica visiva su un piatto di soli ingredienti fuori mappa: da tre cupole brune identiche a una quenelle gialla, granelli dorati e petali viola.
+
+### Limite dichiarato
+
+Restano i due limiti non toccati di D-060: resta un'illustrazione e non una fotografia; i piatti senza struttura composta (zuppe, fritture, paste al forno) restano rappresentati poveramente. I sedici colori sono un compromesso. Soprattutto, l'utilità dell'immagine non è ancora stata misurata su alcun tester reale: è un'ipotesi, e la domanda va posta nel pilot.

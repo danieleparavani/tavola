@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderPlating, platingText } from '../core/platingRender.mjs';
-import { styleFor, sauceColorFor } from '../core/foodStyle.mjs';
+import { styleFor, sauceColorFor, GRAIN_ENUM, COLOR_ENUM } from '../core/foodStyle.mjs';
 
 // D-048: schema di impiattamento deterministico (regole fisse, nessuna generazione AI). Questi
 // test verificano solo che il rendering sia un PNG valido e deterministico e che il testo
@@ -109,6 +109,55 @@ test('styleFor restituisce una resa neutra per un ingrediente non previsto, senz
   assert.equal(style.grain, 'dome');
   const png = renderPlating({ ...samplePlating, clockLayout: [{ element: 'composta di bergamotto fermentato', position: '3', shape: 'mucchio' }, { element: 'quinoa soffiata', position: '9', shape: 'linea' }] });
   assert.ok(Buffer.isBuffer(png) && png.length > 8);
+});
+
+// D-061: il laboratorio dichiara grana e colore scegliendo da elenchi fissi, così un ingrediente
+// che la mappa locale non conosce viene comunque disegnato per quello che è, invece di finire in
+// una cupola neutra. Dove la mappa riconosce l'ingrediente resta lei a decidere, come verificatore.
+test('styleFor usa la grana e il colore dichiarati quando la mappa locale non riconosce l\'ingrediente', () => {
+  const style = styleFor('composta di bergamotto fermentato', { grain: 'crema', color: 'giallo agrume' });
+  assert.equal(style.grain, 'cream');
+  assert.ok(style.base[0] > 200 && style.base[2] < 150, 'deve prendere il giallo dichiarato, non il bruno neutro');
+});
+
+test('styleFor ignora una dichiarazione incoerente quando conosce davvero l\'ingrediente', () => {
+  const style = styleFor('pomodoro crudo condito', { grain: 'foglie', color: 'verde scuro' });
+  assert.equal(style.grain, 'dice', 'un pomodoro resta a dadi anche se dichiarato come foglie');
+  assert.ok(style.base[0] > style.base[1], 'e resta rosso');
+});
+
+test('styleFor continua a funzionare senza attributi dichiarati (piatti editoriali e sessioni in corso)', () => {
+  assert.equal(styleFor('nido di spaghetti').grain, 'strands');
+  assert.equal(styleFor('ingrediente mai visto').grain, 'dome');
+  assert.equal(styleFor('ingrediente mai visto', {}).grain, 'dome');
+});
+
+// D-061: due difetti trovati provando la precedenza su nomi reali, prima del deploy.
+test('la mappa non decide sulla base di un complemento del nome', () => {
+  // "quinoa soffiata al pepe": l'unica parola nota è "pepe", ma l'elemento non è pepe
+  const quinoa = styleFor('quinoa soffiata al pepe di Sichuan', { grain: 'granelli', color: 'bruno chiaro' });
+  assert.equal(quinoa.grain, 'granules');
+  assert.ok(quinoa.base[0] < 200, 'non deve prendere il rosso delle spezie');
+});
+
+test('fra più ingredienti nel nome vince quello che compare per primo', () => {
+  assert.equal(styleFor('branzino al limone').grain, 'fillet', 'il limone è il condimento, non l\'elemento');
+  assert.equal(styleFor('spicchio di limone').grain, 'wedge');
+  assert.equal(styleFor('spaghetti con pomodoro').grain, 'strands');
+});
+
+test('le liste dichiarabili restano allineate a ciò che il renderer sa disegnare', () => {
+  assert.ok(GRAIN_ENUM.length >= 11);
+  for (const grain of GRAIN_ENUM) {
+    const style = styleFor('ingrediente mai visto', { grain, color: 'bruno chiaro' });
+    const png = renderPlating({ ...samplePlating, clockLayout: [{ element: 'ingrediente mai visto', position: '3', shape: 'mucchio', grain, color: 'bruno chiaro' }, { element: 'altro mai visto', position: '9', shape: 'linea', grain, color: 'verde chiaro' }] });
+    assert.ok(style.grain, `la grana "${grain}" deve tradursi in una resa nota`);
+    assert.ok(Buffer.isBuffer(png) && png.length > 8, `la grana "${grain}" deve produrre un'immagine`);
+  }
+  for (const color of COLOR_ENUM) {
+    const style = styleFor('ingrediente mai visto', { grain: 'massa', color });
+    assert.ok(Array.isArray(style.base) && style.base.length === 3, `il colore "${color}" deve avere una palette`);
+  }
 });
 
 test('sauceColorFor segue la base della salsa suggerita dagli elementi del piatto', () => {

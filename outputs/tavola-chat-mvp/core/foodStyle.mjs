@@ -56,26 +56,101 @@ function matches(normalized, key) {
 }
 
 function classFor(normalized) {
-  for (const cls of CLASSES) {
-    if (cls.keys.some(k => matches(normalized, k))) return cls;
-  }
-  return null;
+  return matchFor(normalized)?.cls || null;
 }
+
+// Oltre alla classe serve sapere *dove* ha agganciato: in "quinoa soffiata al pepe di Sichuan"
+// l'unica parola nota è "pepe", che è un condimento secondario — disegnare tutto l'elemento come
+// pepe è sbagliato. La posizione della parola distingue la testa del nome da un suo complemento.
+// Fra più classi che agganciano, vince quella che compare prima nel nome: in "branzino al
+// limone" l'ingrediente è il branzino, il limone è il condimento. A parità di posizione decide
+// l'ordine dell'elenco, dal più specifico al più generico.
+function matchFor(normalized) {
+  let best = null;
+  for (const cls of CLASSES) {
+    for (const k of cls.keys) {
+      if (!matches(normalized, k)) continue;
+      const wordIndex = normalized.slice(0, normalized.indexOf(k)).split(/\s+/).filter(Boolean).length;
+      if (!best || wordIndex < best.wordIndex) best = { cls, wordIndex };
+      break;
+    }
+  }
+  return best;
+}
+
+const HEAD_WORDS = 3; // entro le prime tre parole il nome sta ancora nominando l'ingrediente principale
 
 // "crema di zucchine" è una crema verde, non zucchine a dadi: la preparazione decide la grana,
 // l'ingrediente che segue decide il colore.
 const PREPARATION = /^(?:.*\b)?(crema|purea|vellutata|mousse|spuma|passata|salsa|coulis|gel)\s+(?:di|al|alla|ai|agli|alle|d')\s+(.+)$/;
 
-// Restituisce { grain, light, base, dark, skin?, size? } per il nome dell'ingrediente.
-export function styleFor(elementName) {
+// D-061: le due liste che il laboratorio può usare per dichiarare l'aspetto di un elemento.
+// Sono esattamente le grane che il renderer sa disegnare e i colori che conosce: il modello
+// sceglie fra queste, non descrive a parole sue (D-012). Cambiarle significa cambiare il
+// contratto con il laboratorio (lo schema in core/lab.mjs le importa da qui), quindi vanno
+// tenute allineate a ciò che core/platingRender.mjs sa davvero disegnare.
+export const GRAIN_ENUM = ['fili', 'granelli', 'dadi', 'spicchio', 'trancio', 'fetta', 'foglie', 'crema', 'guscio', 'filo', 'massa'];
+
+const GRAIN_FROM_ENUM = {
+  fili: 'strands', granelli: 'granules', dadi: 'dice', spicchio: 'wedge', trancio: 'fillet',
+  fetta: 'slab', foglie: 'leaves', crema: 'cream', guscio: 'shell', filo: 'drizzle', massa: 'dome',
+};
+
+export const COLOR_ENUM = [
+  'rosso pomodoro', 'rosso scuro', 'rosa pesce', 'arancio', 'giallo agrume', 'giallo dorato',
+  'verde chiaro', 'verde scuro', 'bianco crema', 'bianco pane', 'bruno chiaro', 'bruno rosolato',
+  'bruno scuro', 'viola', 'nero', 'grigio guscio',
+];
+
+const COLOR_PALETTE = {
+  'rosso pomodoro': { light: [226, 96, 72], base: [193, 54, 42], dark: [136, 28, 24] },
+  'rosso scuro': { light: [178, 72, 62], base: [140, 40, 36], dark: [88, 22, 22] },
+  'rosa pesce': { light: [252, 224, 200], base: [242, 186, 156], dark: [196, 120, 96] },
+  arancio: { light: [253, 198, 148], base: [242, 158, 84], dark: [188, 110, 40] },
+  'giallo agrume': { light: [252, 232, 150], base: [240, 206, 84], dark: [193, 154, 40] },
+  'giallo dorato': { light: [246, 218, 150], base: [226, 188, 106], dark: [174, 138, 64] },
+  'verde chiaro': { light: [160, 202, 118], base: [116, 166, 80], dark: [70, 114, 52] },
+  'verde scuro': { light: [116, 158, 92], base: [76, 118, 58], dark: [38, 74, 36] },
+  'bianco crema': { light: [253, 250, 242], base: [240, 233, 216], dark: [196, 186, 164] },
+  'bianco pane': { light: [250, 240, 216], base: [232, 216, 182], dark: [180, 162, 128] },
+  'bruno chiaro': { light: [214, 178, 132], base: [178, 140, 96], dark: [124, 94, 62] },
+  'bruno rosolato': { light: [186, 122, 80], base: [147, 87, 56], dark: [96, 54, 34] },
+  'bruno scuro': { light: [132, 96, 66], base: [98, 68, 46], dark: [58, 40, 26] },
+  viola: { light: [162, 122, 176], base: [118, 80, 138], dark: [72, 46, 92] },
+  nero: { light: [92, 88, 96], base: [58, 55, 62], dark: [28, 26, 32] },
+  'grigio guscio': { light: [214, 205, 190], base: [166, 155, 138], dark: [104, 95, 82] },
+};
+
+function declaredStyle(declared) {
+  if (!declared) return null;
+  const grain = GRAIN_FROM_ENUM[declared.grain];
+  const palette = COLOR_PALETTE[declared.color];
+  if (!grain && !palette) return null;
+  return { ...(palette || DEFAULT_STYLE), grain: grain || DEFAULT_STYLE.grain };
+}
+
+// Restituisce { grain, light, base, dark, skin?, size? } per un elemento del piatto.
+//
+// D-061: la mappa locale vince dove riconosce davvero l'ingrediente — lì sa anche ciò che un
+// colore non esprime (la pelle della triglia, la dimensione dei granelli) e fa da verificatore
+// contro una dichiarazione incoerente. Dove invece non riconosce nulla, e prima l'elemento finiva
+// in una cupola neutra, valgono la grana e il colore dichiarati dal laboratorio: è così che un
+// ingrediente mai previsto viene comunque disegnato per quello che è, senza allungare la lista di
+// parole chiave (il catalogo chiuso rifiutato da D-014). `declared` manca nei piatti editoriali e
+// nelle sessioni già in corso, che continuano a funzionare con la sola mappa.
+export function styleFor(elementName, declared) {
   const n = normalize(elementName);
   const prep = n.match(PREPARATION);
   if (prep) {
-    const inner = classFor(prep[2]);
-    const creamy = classFor('crema');
-    return { ...(inner || creamy), grain: 'cream' };
+    const inner = classFor(prep[2]) || declaredStyle(declared) || classFor('crema');
+    return { ...inner, grain: 'cream' };
   }
-  return classFor(n) || DEFAULT_STYLE;
+  const match = matchFor(n);
+  const fromDeclared = declaredStyle(declared);
+  // la mappa vince solo quando riconosce la testa del nome; se ha agganciato un complemento
+  // ("... al pepe", "... con limone") vale ciò che il laboratorio ha dichiarato per l'elemento
+  if (match && (match.wordIndex < HEAD_WORDS || !fromDeclared)) return match.cls;
+  return fromDeclared || DEFAULT_STYLE;
 }
 
 // Colore della salsa: anche qui, quando il nome di un elemento suggerisce la base della salsa

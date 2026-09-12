@@ -309,7 +309,9 @@ const GRAIN_RENDERERS = {
 const SOLID_GRAINS = new Set(['wedge', 'fillet', 'slab', 'cream']);
 
 function drawElement(canvas, item, x, y, scale) {
-  const style = styleFor(item.element);
+  // D-061: la grana e il colore dichiarati dal laboratorio valgono dove la mappa locale non
+  // riconosce l'ingrediente; dove lo riconosce, vince la mappa (vedi core/foodStyle.mjs).
+  const style = styleFor(item.element, { grain: item.grain, color: item.color });
   const rng = makeRng(hashString(`${item.element}|${item.position}|${item.shape}`));
   const base = FOOTPRINT[item.shape] || FOOTPRINT.mucchio;
   const fp = { x, y, rx: base.rx * scale, ry: base.ry * scale, h: base.h * scale };
