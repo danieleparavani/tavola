@@ -62,3 +62,21 @@ test('platingText restituisce stringa vuota se plating è assente', () => {
   assert.equal(platingText(null), '');
   assert.equal(platingText(undefined), '');
 });
+
+// D-059: il disegno precedente era illeggibile (piatto quasi invisibile, elementi senza volume,
+// nessun modo di collegare una forma astratta al nome dell'ingrediente). La correzione numera gli
+// elementi sull'immagine (badge) e nella didascalia, con lo stesso numero in entrambi i posti.
+test('platingText numera ogni elemento nello stesso ordine di clockLayout, a partire da 1', () => {
+  const text = platingText(samplePlating);
+  assert.match(text, /1\. nido di spaghetti/);
+  assert.match(text, /2\. mollica croccante/);
+  assert.match(text, /3\. filo d’olio/);
+});
+
+test('renderPlating produce un\'immagine più grande della versione precedente (600x600, non più 480x480)', () => {
+  const png = renderPlating(samplePlating);
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  assert.equal(width, 600);
+  assert.equal(height, 600);
+});

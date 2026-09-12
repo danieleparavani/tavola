@@ -1051,3 +1051,25 @@ Quattro nuovi test in `test/engine.test.mjs`, uno per stato, ciascuno con una fr
 ### Limite dichiarato
 
 Il gap resta, per scelta esplicita, negli stati di raccolta dati strutturati e in `lab_clarification`/`proposal_feedback`. Non ancora verificato dal vivo su Telegram.
+
+## Failure osservato — disegno dell'impiattamento illeggibile (12 settembre 2026)
+
+### Evidenza osservata
+
+Il progettista ha scritto: "il disegno che viene fuori dalla ricetta è pessimo. Dobbiamo migliorarlo di molto altrimenti va tolto. Deve essere un disegno più bello anche 3D e più chiaro non si capiva nulla". Controllando `core/platingRender.mjs` è emerso che il colore di riempimento del piatto era quasi identico allo sfondo bianco del canvas (piatto praticamente invisibile), gli elementi erano forme piatte di colore uniforme senza volume, e non esisteva alcun collegamento visivo tra una forma sul piatto e il nome dell'ingrediente nel testo separato.
+
+### Interpretazione
+
+Non un problema di gusto ma di leggibilità concreta: basso contrasto piatto/sfondo, assenza di profondità, assenza di corrispondenza esplicita immagine↔testo.
+
+### Decisione
+
+Vedi DECISIONS.md, D-059: ridisegnato mantenendo lo schema deterministico a regole (nessuna generazione AI, nessuna dipendenza esterna) ma con piano d'appoggio a contrasto, piatto con ombra/gradiente/bordo bisellato, elementi con gradiente "a sfera" e ombra propria, badge numerati sugli elementi che corrispondono al numero premesso a ciascuna riga di `platingText`, salse ridisegnate con gradienti.
+
+### Verifica
+
+Rendering di più combinazioni (1-5 elementi, ogni forma, ogni stile di salsa) esportate come PNG e ispezionate visivamente in questa sessione: piatto ben visibile, elementi con volume, numeri leggibili e corrispondenti al testo. Due nuovi test in `test/platingRender.test.mjs`. Suite completa: 124/124 test superati.
+
+### Limite dichiarato
+
+Resta uno schema geometrico astratto, non un disegno figurativo del piatto reale (scelta invariata di D-048). Il font bitmap copre solo le cifre 0-9, non può scrivere il nome dell'ingrediente sull'immagine. Non ancora verificato dal vivo su Telegram, incluso se la dimensione maggiore dell'immagine (600×600, prima 480×480) crei problemi su client reali.
