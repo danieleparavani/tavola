@@ -1161,3 +1161,25 @@ Tre schede di piatti diversi ispezionate visivamente; quattro nuovi test (format
 ### Limite dichiarato
 
 L'alfabeto è uno stampatello inclinato, non una calligrafia legata. I richiami mostrano tre campi fissi senza scegliere il più rilevante. La sezione mostra il profilo in altezza, non gli strati interni. Restano i limiti di D-060 e D-062 su zuppe, fritture e paste al forno. Come si legga la scheda, ora densa, su uno schermo di telefono è il rischio principale e non è ancora verificato.
+
+## Deploy annullato e profilazione del disegno (12 settembre 2026)
+
+### Evidenza osservata
+
+La suite di test, che in locale gira in 40 secondi, ha superato i sette minuti sulla VM senza terminare. Misurando direttamente sulla macchina di produzione: scheda D-063 17,7 s la prima immagine e 15,8 s le successive, contro 2,7 s e 584 ms del disegno allora in produzione (D-062). In locale gli stessi valori erano 770 ms e 200 ms.
+
+### Interpretazione
+
+Il rapporto fra le due macchine passa da quattro a ventisette sul carico più pesante: la VM ha due vCPU condivise e viene limitata sotto sforzo prolungato. Sedici secondi nel passaggio finale di una ricetta non sono accettabili. Il profilo della CPU ha mostrato che il 63% del tempo stava in `distanceToOutline` e un altro 13% nel garbage collector, alimentato dall'allocazione di una maschera per ciascuno degli oltre cento tratti di penna di una scheda.
+
+### Decisione
+
+Deploy di D-063 annullato e VM riportata a `20f2653`, verificando che il servizio restasse attivo sulla versione precedente. Vedi DECISIONS.md D-064 per l'ottimizzazione: distanza dal contorno stimata dagli estremi di riga e colonna, attraversamenti conservati tutti (le macchie concave hanno un incavo), maschera dei tratti riusata, rumore tabellato, compressione più rapida.
+
+### Verifica
+
+Scheda da 697 a 118 ms in locale, suite da 40 a 12,6 secondi, 138/138 test. Resa visivamente equivalente su tre piatti. Un difetto introdotto e corretto: la prima stima usava solo il primo e l'ultimo attraversamento per riga e riempiva l'incavo della salsa a virgola — visibile solo guardando l'immagine, non dai test.
+
+### Limite dichiarato
+
+La distanza stimata resta un'approssimazione, adeguata alle forme attuali ma non a una molto frastagliata. Soprattutto: il costo va misurato sulla macchina di produzione, non su quella di sviluppo. Due ottimizzazioni tentate prima di profilare hanno inciso poco.

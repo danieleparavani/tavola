@@ -445,7 +445,7 @@ export function encodePNG(canvas) {
   ihdr[8] = 8; // bit depth
   ihdr[9] = 6; // color type RGBA
   ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
-  const idat = zlib.deflateSync(raw);
+  const idat = zlib.deflateSync(raw, { level: 4 });
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   return Buffer.concat([signature, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 }
@@ -487,6 +487,37 @@ export function valueNoise(x, y, seed = 1) {
   const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
   const n00 = hash2(x0, y0, seed), n10 = hash2(x0 + 1, y0, seed);
   const n01 = hash2(x0, y0 + 1, seed), n11 = hash2(x0 + 1, y0 + 1, seed);
+  return (n00 * (1 - sx) + n10 * sx) * (1 - sy) + (n01 * (1 - sx) + n11 * sx) * sy;
+}
+
+// D-064: dentro una velatura il rumore viene consultato per ogni pixel. Una tabella piccola
+// (64x64, costruirla costa quanto poche centinaia di pixel) calcolata una volta per seme e letta
+// con avvolgimento da gli stessi valori a parita di seme, a costo di una lettura. Oltre un tetto
+// di semi si torna al calcolo diretto, cosi la memoria non cresce senza limite.
+const NOISE_TILE = 64, NOISE_MASK = NOISE_TILE - 1;
+const noiseTiles = new Map();
+
+function noiseTile(seed) {
+  let tile = noiseTiles.get(seed);
+  if (tile) return tile;
+  if (noiseTiles.size > 400) return null;
+  tile = new Float32Array(NOISE_TILE * NOISE_TILE);
+  for (let y = 0; y < NOISE_TILE; y++) {
+    for (let x = 0; x < NOISE_TILE; x++) tile[y * NOISE_TILE + x] = hash2(x, y, seed);
+  }
+  noiseTiles.set(seed, tile);
+  return tile;
+}
+
+export function tiledNoise(x, y, seed) {
+  const tile = noiseTile(seed);
+  if (!tile) return valueNoise(x, y, seed);
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const xa = x0 & NOISE_MASK, xb = (x0 + 1) & NOISE_MASK;
+  const ya = (y0 & NOISE_MASK) * NOISE_TILE, yb = ((y0 + 1) & NOISE_MASK) * NOISE_TILE;
+  const n00 = tile[ya + xa], n10 = tile[ya + xb], n01 = tile[yb + xa], n11 = tile[yb + xb];
   return (n00 * (1 - sx) + n10 * sx) * (1 - sy) + (n01 * (1 - sx) + n11 * sx) * sy;
 }
 
@@ -537,13 +568,20 @@ export function fillWash(canvas, pts, rgb, opts = {}) {
     minY = Math.min(minY, y); maxY = Math.max(maxY, y);
   }
   const edgeWidth = Math.max(2.5, Math.min(9, Math.min(maxX - minX, maxY - minY) * 0.22));
-  // D-063: la distanza esatta dal contorno costa quanto il numero di lati, per ogni pixel, ed e
-  // il motivo per cui una scheda con tre piatti e le vignette arrivava a due secondi. Le righe
-  // vengono quindi riempite per intervalli (una sola passata sui lati per riga) e la distanza
-  // esatta si calcola solo dove serve davvero: vicino ai bordi, dove il pigmento si accumula, e
-  // nella fascia di sbavatura appena fuori. All'interno il colore non dipende dalla distanza.
-  const band = edgeWidth + bleed + 1;
+  // D-064: la distanza esatta dal contorno era il 63% del costo del disegno, perche per ogni
+  // pixel del bordo scorreva tutti i lati del poligono. Qui viene stimata dagli estremi della
+  // riga e della colonna a cui il pixel appartiene: coincide con quella vera sui lati orizzontali
+  // e verticali e la sovrastima di poco in diagonale, differenza invisibile su un bordo sfumato,
+  // ma toglie il ciclo sui lati dal punto piu caldo del programma.
+  const x0 = Math.floor(minX - bleed) - 1, x1 = Math.ceil(maxX + bleed) + 1;
   const y0 = Math.floor(minY - bleed) - 1, y1 = Math.ceil(maxY + bleed) + 1;
+  const rows = y1 - y0 + 1, cols = x1 - x0 + 1;
+  // Gli attraversamenti vanno tenuti tutti, non solo il primo e l'ultimo: una macchia concava
+  // come la virgola di una salsa ha un incavo che non deve essere riempito.
+  const maxCross = pts.length + 2;
+  const spans = new Float32Array(rows * maxCross);
+  const spanCount = new Uint8Array(rows);
+  const colTop = new Float32Array(cols).fill(Infinity), colBottom = new Float32Array(cols).fill(-Infinity);
   const crossings = [];
   for (let y = y0; y <= y1; y++) {
     const py = y + 0.5;
@@ -552,30 +590,51 @@ export function fillWash(canvas, pts, rgb, opts = {}) {
       const [xi, yi] = pts[i], [xj, yj] = pts[j];
       if ((yi > py) !== (yj > py)) crossings.push(((xj - xi) * (py - yi)) / (yj - yi) + xi);
     }
+    const r = y - y0;
+    if (crossings.length < 2) continue;
     crossings.sort((a, b) => a - b);
-    const spanStart = crossings.length ? crossings[0] : null;
-    const spanEnd = crossings.length ? crossings[crossings.length - 1] : null;
-    const nearTop = py - minY < band || maxY - py < band;
-    const from = spanStart === null ? Math.floor(minX - bleed) : Math.floor(spanStart - bleed) - 1;
-    const to = spanEnd === null ? Math.ceil(maxX + bleed) : Math.ceil(spanEnd + bleed) + 1;
+    const n = Math.min(crossings.length - (crossings.length % 2), maxCross);
+    spanCount[r] = n;
+    for (let k = 0; k < n; k++) spans[r * maxCross + k] = crossings[k];
+    for (let k = 0; k + 1 < n; k += 2) {
+      const from = Math.max(x0, Math.floor(crossings[k])), to = Math.min(x1, Math.ceil(crossings[k + 1]));
+      for (let x = from; x <= to; x++) {
+        const c = x - x0;
+        if (py < colTop[c]) colTop[c] = py;
+        if (py > colBottom[c]) colBottom[c] = py;
+      }
+    }
+  }
+  for (let y = y0; y <= y1; y++) {
+    const py = y + 0.5, r = y - y0;
+    const nSpans = spanCount[r], base = r * maxCross;
+    const emptyRow = nSpans < 2;
+    const from = emptyRow ? x0 : Math.max(x0, Math.floor(spans[base] - bleed) - 1);
+    const to = emptyRow ? x1 : Math.min(x1, Math.ceil(spans[base + nSpans - 1] + bleed) + 1);
     for (let x = from; x <= to; x++) {
-      const px = x + 0.5;
-      let inside = false;
-      for (let k = 0; k + 1 < crossings.length; k += 2) {
-        if (px >= crossings[k] && px <= crossings[k + 1]) { inside = true; break; }
+      const px = x + 0.5, c = x - x0;
+      const top = colTop[c], bottom = colBottom[c];
+      let dxIn = -1;
+      for (let k = 0; k + 1 < nSpans; k += 2) { // l'intervallo che contiene il pixel, se esiste
+        const a0 = spans[base + k], a1 = spans[base + k + 1];
+        if (px >= a0 && px <= a1) { dxIn = Math.min(px - a0, a1 - px); break; }
       }
-      const nearEdge = spanStart === null || nearTop
-        || px - spanStart < band || spanEnd - px < band;
+      const inside = dxIn >= 0 && top !== Infinity && py >= top && py <= bottom;
       let d;
-      if (nearEdge) {
-        d = distanceToOutline(px, py, pts);
-        if (!inside && d > bleed) continue;
+      if (inside) {
+        d = Math.min(dxIn, py - top, bottom - py);
       } else {
-        if (!inside) continue;
-        d = band; // ben dentro la macchia: la distanza esatta non cambierebbe il colore
+        let dx = bleed + 1;
+        for (let k = 0; k + 1 < nSpans; k += 2) {
+          const a0 = spans[base + k], a1 = spans[base + k + 1];
+          dx = Math.min(dx, Math.max(a0 - px, px - a1, 0));
+        }
+        const dy = top === Infinity ? bleed + 1 : Math.max(top - py, py - bottom, 0);
+        d = Math.hypot(dx, dy);
+        if (d > bleed) continue;
       }
-      const n = valueNoise(x * scale, y * scale, seed);
-      const n2 = valueNoise(x * scale * 3.1 + 11, y * scale * 3.1 + 7, seed + 3);
+      const n = tiledNoise(x * scale, y * scale, seed);
+      const n2 = tiledNoise(x * scale * 3.1 + 11, y * scale * 3.1 + 7, seed + 3);
       let a = alpha * ((1 - grain) + grain * 2 * n);
       if (inside) {
         a *= Math.min(1, d + 0.5); // antialias del bordo, ricavato dalla distanza
@@ -625,7 +684,7 @@ export function drawInkBatch(canvas, strokes, rgb, opts = {}) {
   const pad = Math.ceil(width + wobble + 2);
   const box = { minX: Math.floor(gMinX) - pad, minY: Math.floor(gMinY) - pad, maxX: Math.ceil(gMaxX) + pad, maxY: Math.ceil(gMaxY) + pad };
   box.w = box.maxX - box.minX + 1; box.h = box.maxY - box.minY + 1;
-  const mask = new Float32Array(box.w * box.h);
+  const mask = borrowMask(box.w * box.h);
   runs.forEach((pts, runIndex) => stampRun(mask, box, pts, { width, alpha, seed: seed + runIndex * 13, wobble, breaks, taper }));
   for (let yy = 0; yy < box.h; yy++) {
     for (let xx = 0; xx < box.w; xx++) {
@@ -633,6 +692,16 @@ export function drawInkBatch(canvas, strokes, rgb, opts = {}) {
       if (a > 0.002) paintMultiply(canvas, box.minX + xx, box.minY + yy, rgb, a);
     }
   }
+}
+
+// Maschera di lavoro condivisa fra i tratti: viene azzerata e riusata, e cresce solo quando
+// serve. Una scheda disegna oltre cento tratti, e allocarne una per ciascuno pesava piu del
+// disegno stesso su una macchina piccola.
+let scratchMask = new Float32Array(1024);
+function borrowMask(size) {
+  if (scratchMask.length < size) scratchMask = new Float32Array(size);
+  else scratchMask.fill(0, 0, size);
+  return scratchMask;
 }
 
 function stampRun(mask, box, pts, opts) {
