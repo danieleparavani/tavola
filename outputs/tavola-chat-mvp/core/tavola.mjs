@@ -1,5 +1,6 @@
 import {generateLabPlan,generateDifficultyIdeas,labAvailable,assessReflection,answerCookingDoubt,answerRecipeQuestion,classifyIntent,TECHNIQUE_MAP} from './lab.mjs';
-import {renderPlating,platingText} from './platingRender.mjs';
+import {platingText} from './platingRender.mjs';
+import {platingPhoto} from './platingImage.mjs';
 
 // NOTA: questi tre piatti editoriali (alici, triglia in due varianti) sono gold example
 // verificati manualmente (cfr. EVIDENCE.md, Esperimento 1). Da quando il laboratorio
@@ -521,12 +522,15 @@ function cookingReply(user){
   const d=currentDish(user),i=user.session.step,s=d.steps[i];event(user,'step_shown',{step:i,mode:user.session.mode});
   const isLastStep=i===d.steps.length-1,isCritical=isLastStep||norm(s.term)===norm(d.principle.term);
   // D-048: l'ultimo passaggio è sempre l'impiattamento (D-020). Se il piatto ha uno schema
-  // strutturato (plating), qui viene allegato sia come immagine (schema deterministico a regole,
-  // non generata da un modello) sia come testo, indipendentemente dalla modalità essenziale —
-  // è il passaggio critico per definizione, non va abbreviato.
-  // D-063: il disegno e diventato una scheda, quindi riceve anche il nome del piatto e il
-  // principio tecnico dominante, che ne sono il titolo e il sottotitolo.
-  const platingExtra=isLastStep&&d.plating?{photo:renderPlating(d.plating,{title:d.name,principle:d.principle}),photoCaption:platingText(d.plating)}:{};
+  // strutturato (plating), qui viene allegato sia come immagine sia come testo,
+  // indipendentemente dalla modalità essenziale — è il passaggio critico per definizione, non va
+  // abbreviato.
+  // D-065: l'immagine non è più un buffer già calcolato ma una funzione che lo produce, perché
+  // la generazione costa una trentina di secondi e non deve ritardare il testo del passaggio.
+  // Chi consegna il messaggio (server) manda prima il testo e poi invoca questa funzione. Il
+  // titolo del piatto e il principio non entrano nell'immagine (il modello li taglia): servono
+  // solo alla scheda a regole usata come fallback.
+  const platingExtra=isLastStep&&d.plating?{photo:()=>platingPhoto(d.plating,{title:d.name,principle:d.principle}),photoCaption:platingText(d.plating)}:{};
   if(user.session.mode==='essential'&&!isCritical)return reply(`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}`,buttons.step,{parseMode:'Markdown'});
   const base=`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}\n\n👁 **Osserva:** ${s.observe}`;
   return reply(base,buttons.step,{parseMode:'Markdown',...platingExtra});

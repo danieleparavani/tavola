@@ -11,7 +11,9 @@ const server=http.createServer(async(req,res)=>{try{const url=new URL(req.url,'h
     // D-048: nel simulatore web (non Telegram) l'immagine dello schema di impiattamento viaggia
     // come data URI dentro il JSON, così il buffer PNG grezzo non finisce serializzato come array
     // di byte nella risposta.
-    if(out.photo)out.photo=`data:image/png;base64,${Buffer.from(out.photo).toString('base64')}`;
+    // D-065: il simulatore ha una sola risposta HTTP, quindi qui l'immagine viene attesa. È il
+    // prezzo di avere un canale sincrono: su Telegram, che è il canale vero, il testo parte prima.
+    if(out.photo)out.photo=`data:image/png;base64,${Buffer.from(await resolvePhoto(out.photo)).toString('base64')}`;
     return json(res,200,{reply:out,user:publicUser(u)})}
   if(req.method==='POST'&&url.pathname==='/api/dplus'){const b=await body(req);const u=db.users[String(b.userId||'demo')];if(!u)return json(res,404,{error:'user_not_found'});const out=dplus(u);save();return json(res,200,{reply:out,user:publicUser(u)})}
   if(req.method==='GET'&&url.pathname==='/api/users')return json(res,200,{users:Object.values(db.users).filter(u=>!u.id.startsWith('qa-')).map(publicUser)});
@@ -81,6 +83,12 @@ async function checkProactiveDplus(){
 }
 checkProactiveDplus().catch(e=>console.error('checkProactiveDplus fallito',e));
 setInterval(()=>{checkProactiveDplus().catch(e=>console.error('checkProactiveDplus fallito',e))},60*1000);
+// D-065: out.photo è una funzione che produce il PNG (generato dal modello, o la scheda a regole
+// come fallback). Si accetta anche un buffer diretto per non rompere chiamate più vecchie.
+async function resolvePhoto(photo){
+  try{return typeof photo==='function'?await photo():photo}
+  catch(error){console.error('Immagine del piatto non disponibile:',error?.message||error);return null}
+}
 function truncateBytes(str,maxBytes){let bytes=0,result='';for(const ch of String(str)){const b=Buffer.byteLength(ch,'utf8');if(bytes+b>maxBytes)break;bytes+=b;result+=ch}return result}
 async function sendTelegram(chatId,out){
   const token=process.env.TELEGRAM_BOT_TOKEN;if(!token)return;
@@ -91,12 +99,17 @@ async function sendTelegram(chatId,out){
   // strutturato in didascalia. Usa FormData/Blob nativi di Node (nessuna dipendenza npm aggiunta,
   // stessa convenzione del resto del progetto) per il multipart richiesto da sendPhoto. La
   // didascalia Telegram è limitata a 1024 byte, da qui il troncamento difensivo.
+  // D-065: l'immagine viene prodotta SOLO ORA, dopo che il testo è già partito. Se la
+  // generazione fallisce o scade il tempo, resolvePhoto restituisce null e il passaggio resta
+  // comunque completo: il testo strutturato è la fonte autorevole, l'immagine è evocativa.
   if(out.photo){
+    const photo=await resolvePhoto(out.photo);
+    if(!photo)return;
     const form=new FormData();
     form.append('chat_id',String(chatId));
     form.append('caption',truncateBytes(out.photoCaption||'',1024));
     if(out.parseMode)form.append('parse_mode',out.parseMode);
-    form.append('photo',new Blob([out.photo],{type:'image/png'}),'impiattamento.png');
+    form.append('photo',new Blob([photo],{type:'image/png'}),'impiattamento.png');
     const photoRes=await fetch(`https://api.telegram.org/bot${token}/sendPhoto`,{method:'POST',body:form});
     if(!photoRes.ok){const body=await photoRes.text().catch(()=>'');console.error('Telegram sendPhoto failed',photoRes.status,body)}
   }

@@ -1183,3 +1183,28 @@ Scheda da 697 a 118 ms in locale, suite da 40 a 12,6 secondi, 138/138 test. Resa
 ### Limite dichiarato
 
 La distanza stimata resta un'approssimazione, adeguata alle forme attuali ma non a una molto frastagliata. Soprattutto: il costo va misurato sulla macchina di produzione, non su quella di sviluppo. Due ottimizzazioni tentate prima di profilare hanno inciso poco.
+
+## Prova diretta — immagine del piatto generata da un modello
+
+### Evidenze osservate
+
+- Generate tre immagini reali con un modello di immagini, contro la chiave di produzione, partendo dallo stesso piatto editoriale (filetti di triglia, pomodoro crudo, pane aromatico).
+- Costo circa 34 secondi per immagine, circa 2 MB di PNG.
+- Prima immagine: qualità pittorica nettamente superiore alla scheda disegnata dalle regole; quattro etichette italiane corrette con le frecce sugli elementi giusti; **titolo tagliato in alto**.
+- Seconda immagine, con istruzione esplicita di lasciare margini larghi e tenere tutto dentro la cornice: **titolo tagliato di nuovo**, scritto in carattere tipografico invece che a mano, e un'etichetta persa.
+- Terza immagine, senza alcun titolo richiesto: nessun taglio, quattro etichette su quattro corrette, piatto corrispondente allo schema dichiarato (due filetti con la pelle in vista, pomodoro a ore 2, riga di pane davanti, prezzemolo, filo d'olio).
+- Giudizio del progettista: «molto meglio» sulla prima, «ok mi piace il sistema» sulla terza.
+
+### Interpretazione
+
+Il difetto del taglio non è casuale: riguarda la richiesta di una riga di testo grande in alto, non la cornice. Togliere il titolo dall'immagine lo elimina alla radice, e il titolo è informazione che il messaggio di testo già porta. Sulle etichette corte il modello è risultato affidabile in tutte e tre le prove.
+
+### Ipotesi non verificate
+
+- Che l'immagine generata resti fedele allo schema anche su piatti diversi da questo: tre prove sullo stesso piatto non lo dimostrano.
+- Che le etichette restino corrette su nomi di ingredienti lunghi, insoliti o stranieri.
+- Che l'immagine sia utile al cuoco nel momento dell'impiattamento: non è ancora stata misurata su nessun tester, e vale per tutte le versioni dell'immagine da D-048 in poi.
+
+### Decisione derivata
+
+D-065: immagine generata, dichiarata evocativa, senza titolo, fuori dal percorso critico, con la scheda a regole come fallback.
