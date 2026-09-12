@@ -1208,3 +1208,9 @@ Il difetto del taglio non è casuale: riguarda la richiesta di una riga di testo
 ### Decisione derivata
 
 D-065: immagine generata, dichiarata evocativa, senza titolo, fuori dal percorso critico, con la scheda a regole come fallback.
+
+### Verifica in produzione (12 settembre 2026)
+
+- `platingPhoto` eseguita sulla VM con la chiave reale: immagine generata, 1.997.104 byte in 30,7 secondi.
+- L'immagine mostra il piatto corretto, con "filetti di triglia", "pomodoro crudo" e "pane aromatico" scritti bene e le frecce sugli elementi giusti.
+- **Scostamento osservato:** il pane aromatico, dichiarato nello schema come `linea` (riga di briciole sul piatto), è stato disegnato come una fetta di pane gratinata. È esattamente il limite dichiarato in D-065: la corrispondenza è plausibile, non garantita. Il testo strutturato, che resta la fonte autorevole, diceva la cosa giusta.
