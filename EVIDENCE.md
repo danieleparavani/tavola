@@ -1117,3 +1117,25 @@ Sei nuovi test; suite completa 134/134. Due difetti reali trovati dai test prima
 ### Limite dichiarato
 
 Restano i due limiti non toccati di D-060: resta un'illustrazione e non una fotografia; i piatti senza struttura composta (zuppe, fritture, paste al forno) restano rappresentati poveramente. I sedici colori sono un compromesso. Soprattutto, l'utilità dell'immagine non è ancora stata misurata su alcun tester reale: è un'ipotesi, e la domanda va posta nel pilot.
+
+## Cambio di stile: acquerello (12 settembre 2026)
+
+### Evidenza osservata
+
+Il progettista ha chiesto immagini «con stile disegno ad acquerello», ispirate ai disegni con cui si presentano le idee dei concorrenti a Bake Off Italia.
+
+### Interpretazione
+
+La richiesta aggira il limite principale di D-060 invece di scontrarcisi: imitando un oggetto tridimensionale, un disegno calcolato da regole compete con una fotografia e perde; l'acquerello invece è fatto proprio di ciò che le regole producono bene (bordi irregolari, accumulo di pigmento, velature trasparenti, grana della carta). Il registro è anche coerente con il momento: l'ultimo passaggio presenta un'idea da realizzare, non fotografa un piatto già fatto.
+
+### Decisione
+
+Vedi DECISIONS.md, D-062: nuove primitive per velature, rumore e tratto di matita in `core/png.mjs`; renderer riscritto in chiave acquerello; cifre scritte a mano. Schema dei dati invariato.
+
+### Verifica
+
+Quattro piatti di natura diversa renderizzati e ispezionati visivamente, più le 25 combinazioni forma × salsa dei test. Suite completa 134/134, invariata perché lo schema non cambia. Due difetti corretti durante la lavorazione: il tratto di penna si anneriva dove ripassava su se stesso (risolto con una maschera di copertura presa al massimo e composta una sola volta) e la prima immagine costava oltre tre secondi (risolta con un solo campione per pixel nella velatura e la grana della carta calcolata ogni due pixel). Circa 200 ms per immagine dopo la prima.
+
+### Limite dichiarato
+
+Zuppe, fritture e paste al forno restano rappresentate poveramente. Lo stile è unico e non configurabile. Che un acquerello comunichi meglio di uno schema resta un'ipotesi non verificata su tester reali.

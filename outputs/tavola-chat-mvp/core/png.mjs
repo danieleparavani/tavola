@@ -449,3 +449,187 @@ export function encodePNG(canvas) {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   return Buffer.concat([signature, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 }
+
+// D-062: primitive per la resa ad acquerello. L'acquerello, a differenza di un rendering
+// tridimensionale, è alla portata di un disegno calcolato da regole: vive di bordi irregolari,
+// pigmento che si accumula ai margini della macchia, velature trasparenti che si moltiplicano
+// dove si sovrappongono e grana della carta. Tutto ciò si ottiene con rumore deterministico e
+// una diversa modalità di fusione dei pixel, sempre senza dipendenze esterne.
+
+// Fusione a moltiplicazione: è il comportamento del pigmento trasparente su carta, dove due
+// velature sovrapposte danno un colore più scuro. La fusione normale (sopra) invece copre, e
+// faceva sembrare ogni elemento un adesivo appoggiato sul foglio.
+export function paintMultiply(canvas, x, y, rgb, alpha) {
+  x = Math.round(x); y = Math.round(y);
+  if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return;
+  const a = Math.max(0, Math.min(1, alpha));
+  if (a <= 0) return;
+  const i = (y * canvas.width + x) * 4;
+  for (let c = 0; c < 3; c++) {
+    const base = canvas.pixels[i + c];
+    canvas.pixels[i + c] = Math.round(base * (1 - a) + (base * rgb[c]) / 255 * a);
+  }
+  canvas.pixels[i + 3] = 255;
+}
+
+function hash2(x, y, seed) {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed | 0, 2246822519);
+  h = h ^ (h >>> 13);
+  h = Math.imul(h, 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// Rumore continuo: serve a rendere irregolare la densità del pigmento e il bordo delle macchie.
+// Deterministico a parità di seed, quindi la stessa ricetta produce sempre lo stesso disegno.
+export function valueNoise(x, y, seed = 1) {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const n00 = hash2(x0, y0, seed), n10 = hash2(x0 + 1, y0, seed);
+  const n01 = hash2(x0, y0 + 1, seed), n11 = hash2(x0 + 1, y0 + 1, seed);
+  return (n00 * (1 - sx) + n10 * sx) * (1 - sy) + (n01 * (1 - sx) + n11 * sx) * sy;
+}
+
+function pointInPoly(px, py, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function distanceToOutline(px, py, pts) {
+  let best = Infinity;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [ax, ay] = pts[j], [bx, by] = pts[i];
+    const vx = bx - ax, vy = by - ay;
+    const len2 = vx * vx + vy * vy || 1;
+    let t = ((px - ax) * vx + (py - ay) * vy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    best = Math.min(best, Math.hypot(px - (ax + vx * t), py - (ay + vy * t)));
+  }
+  return best;
+}
+
+// Contorno irregolare di una forma: un'ellisse disegnata a mano non è mai perfetta. Il rumore è
+// campionato lungo la circonferenza, così il profilo si richiude senza gradini.
+export function organicEllipse(cx, cy, rx, ry, rotationRad = 0, seed = 1, amount = 0.08, steps = 30) {
+  const pts = [];
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const n = valueNoise(Math.cos(a) * 2.5 + 4, Math.sin(a) * 2.5 + 4, seed);
+    const r = 1 + (n - 0.5) * 2 * amount;
+    const lx = Math.cos(a) * rx * r, ly = Math.sin(a) * ry * r;
+    pts.push([cx + lx * Math.cos(rotationRad) - ly * Math.sin(rotationRad), cy + lx * Math.sin(rotationRad) + ly * Math.cos(rotationRad)]);
+  }
+  return pts;
+}
+
+// Velatura di colore dentro una forma: densità irregolare, pigmento che si accumula verso il
+// bordo (è il tratto più riconoscibile dell'acquerello), piccole sbavature oltre il contorno e
+// qualche zona quasi asciutta dove la carta resta scoperta.
+export function fillWash(canvas, pts, rgb, opts = {}) {
+  const { alpha = 0.5, seed = 1, grain = 0.4, edge = 0.55, bleed = 3.5, scale = 0.07, dry = 0.94 } = opts;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of pts) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  const edgeWidth = Math.max(2.5, Math.min(9, Math.min(maxX - minX, maxY - minY) * 0.22));
+  for (let y = Math.floor(minY - bleed) - 1; y <= Math.ceil(maxY + bleed) + 1; y++) {
+    for (let x = Math.floor(minX - bleed) - 1; x <= Math.ceil(maxX + bleed) + 1; x++) {
+      const inside = pointInPoly(x + 0.5, y + 0.5, pts);
+      const d = distanceToOutline(x + 0.5, y + 0.5, pts);
+      if (!inside && d > bleed) continue;
+      const n = valueNoise(x * scale, y * scale, seed);
+      const n2 = valueNoise(x * scale * 3.1 + 11, y * scale * 3.1 + 7, seed + 3);
+      let a = alpha * ((1 - grain) + grain * 2 * n);
+      if (inside) {
+        a *= Math.min(1, d + 0.5); // antialias del bordo, ricavato dalla distanza
+        const t = Math.max(0, 1 - d / edgeWidth);
+        a *= 1 + edge * t * t; // accumulo di pigmento sul bordo della macchia
+      } else {
+        a *= 0.4 * Math.max(0, 1 - d / bleed) * (0.35 + 0.65 * n2); // sbavatura oltre il contorno
+      }
+      if (n2 > dry) a *= 0.2; // carta lasciata scoperta, effetto pennello asciutto
+      paintMultiply(canvas, x, y, rgb, Math.min(0.9, a));
+    }
+  }
+}
+
+// La traccia della penna viene accumulata in una maschera prendendo il valore massimo, non
+// sommando: un tratto che si richiude su se stesso non deve diventare nero nel punto di
+// sovrapposizione, come invece succedeva componendo ogni tocco direttamente sull'immagine.
+function stampDab(mask, box, cx, cy, r, alpha) {
+  for (let y = Math.floor(cy - r) - 1; y <= Math.ceil(cy + r) + 1; y++) {
+    for (let x = Math.floor(cx - r) - 1; x <= Math.ceil(cx + r) + 1; x++) {
+      if (x < box.minX || y < box.minY || x > box.maxX || y > box.maxY) continue;
+      const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+      if (d > r + 0.5) continue;
+      const i = (y - box.minY) * box.w + (x - box.minX);
+      mask[i] = Math.max(mask[i], alpha * Math.min(1, r + 0.5 - d));
+    }
+  }
+}
+
+// Tratto di matita o penna: spessore e intensità variabili, leggero tremolio, qualche
+// interruzione. È la linea di contorno dei disegni fatti a mano, che non coincide mai
+// perfettamente con il colore steso sotto.
+export function drawInk(canvas, points, rgb, opts = {}) {
+  const { width = 1.6, alpha = 0.7, seed = 1, wobble = 1.1, breaks = 0.1, closed = false, taper = false } = opts;
+  const pts = closed ? [...points, points[0]] : points;
+  if (pts.length < 2) return;
+  let total = 0;
+  const lens = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+    lens.push(l); total += l;
+  }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of pts) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  const pad = Math.ceil(width + wobble + 2);
+  const box = { minX: Math.floor(minX) - pad, minY: Math.floor(minY) - pad, maxX: Math.ceil(maxX) + pad, maxY: Math.ceil(maxY) + pad };
+  box.w = box.maxX - box.minX + 1; box.h = box.maxY - box.minY + 1;
+  const mask = new Float32Array(box.w * box.h);
+  const steps = Math.max(8, Math.round(total / 1.1));
+  for (let s = 0; s <= steps; s++) {
+    const t = s / steps;
+    let target = t * total, i = 0;
+    while (i < lens.length - 1 && target > lens[i]) { target -= lens[i]; i++; }
+    const u = lens[i] ? target / lens[i] : 0;
+    const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * u;
+    const y = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * u;
+    if (valueNoise(t * 17, 5, seed + 9) < breaks) continue;
+    const ox = (valueNoise(t * 7, 2, seed) - 0.5) * 2 * wobble;
+    const oy = (valueNoise(t * 7 + 33, 6, seed) - 0.5) * 2 * wobble;
+    const pressure = 0.55 + 0.9 * valueNoise(t * 5 + 2, 8, seed + 1);
+    const end = taper ? Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0.001, t))), 0.4) : 1;
+    stampDab(mask, box, x + ox, y + oy, (width / 2) * pressure * end, Math.min(0.95, alpha * pressure));
+  }
+  for (let yy = 0; yy < box.h; yy++) {
+    for (let xx = 0; xx < box.w; xx++) {
+      const a = mask[yy * box.w + xx];
+      if (a > 0.002) paintMultiply(canvas, box.minX + xx, box.minY + yy, rgb, a);
+    }
+  }
+}
+
+// Contorno chiuso di un nastro a partire dalla sua linea mediana: serve a stendere una salsa
+// come una macchia con i suoi bordi, non come una linea spessa.
+export function ribbonPolygon(points, widthAt) {
+  const left = [], right = [];
+  for (let i = 0; i < points.length; i++) {
+    const prev = points[Math.max(0, i - 1)], next = points[Math.min(points.length - 1, i + 1)];
+    const dx = next.x - prev.x, dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;
+    const w = widthAt(i / (points.length - 1)) / 2;
+    left.push([points[i].x + nx * w, points[i].y + ny * w]);
+    right.push([points[i].x - nx * w, points[i].y - ny * w]);
+  }
+  return [...left, ...right.reverse()];
+}
