@@ -1139,3 +1139,25 @@ Quattro piatti di natura diversa renderizzati e ispezionati visivamente, più le
 ### Limite dichiarato
 
 Zuppe, fritture e paste al forno restano rappresentate poveramente. Lo stile è unico e non configurabile. Che un acquerello comunichi meglio di uno schema resta un'ipotesi non verificata su tester reali.
+
+## Modello fornito: la scheda del piatto (12 settembre 2026)
+
+### Evidenza osservata
+
+Il progettista ha allegato una scheda ad acquerello di una tartelletta ai frutti rossi (titolo a mano, ingredienti dipinti a margine, richiami con frecce, sezione, vista dall'alto, prova colore) e ha scritto: «usa questo come modello».
+
+### Interpretazione
+
+Il valore trasferibile è l'impaginazione, non la pittura: una scheda porta più informazione di un solo piatto e ogni suo riquadro corrisponde a un campo che il laboratorio già compila. L'ostacolo tecnico era la scrittura: un carattere tipografico accanto a un tratto tremolante tradisce il disegno.
+
+### Decisione
+
+Vedi DECISIONS.md, D-063: nuovo alfabeto di tratti (`core/handwriting.mjs`), geometria del piatto parametrica, e composizione della scheda con titolo, principio, vignette numerate, vista principale, richiami, sezione, vista dall'alto e prova colore. Nessun testo inventato.
+
+### Verifica
+
+Tre schede di piatti diversi ispezionate visivamente; quattro nuovi test (formato, presenza reale del titolo, determinismo, misura e ritorno a capo della scrittura). Suite completa 138/138. Problema reale emerso e risolto: la suite andava in timeout perché la scheda costava 2,2 secondi (la velatura calcolava la distanza esatta dal contorno per ogni pixel, su tre piatti più le vignette); riscritta a scansione di righe, 0,77 s a scheda con resa identica.
+
+### Limite dichiarato
+
+L'alfabeto è uno stampatello inclinato, non una calligrafia legata. I richiami mostrano tre campi fissi senza scegliere il più rilevante. La sezione mostra il profilo in altezza, non gli strati interni. Restano i limiti di D-060 e D-062 su zuppe, fritture e paste al forno. Come si legga la scheda, ora densa, su uno schermo di telefono è il rischio principale e non è ancora verificato.

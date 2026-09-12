@@ -524,7 +524,9 @@ function cookingReply(user){
   // strutturato (plating), qui viene allegato sia come immagine (schema deterministico a regole,
   // non generata da un modello) sia come testo, indipendentemente dalla modalità essenziale —
   // è il passaggio critico per definizione, non va abbreviato.
-  const platingExtra=isLastStep&&d.plating?{photo:renderPlating(d.plating),photoCaption:platingText(d.plating)}:{};
+  // D-063: il disegno e diventato una scheda, quindi riceve anche il nome del piatto e il
+  // principio tecnico dominante, che ne sono il titolo e il sottotitolo.
+  const platingExtra=isLastStep&&d.plating?{photo:renderPlating(d.plating,{title:d.name,principle:d.principle}),photoCaption:platingText(d.plating)}:{};
   if(user.session.mode==='essential'&&!isCritical)return reply(`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}`,buttons.step,{parseMode:'Markdown'});
   const base=`**${i+1}/${d.steps.length} — ${s.title}**\n${s.action}\n\n👁 **Osserva:** ${s.observe}`;
   return reply(base,buttons.step,{parseMode:'Markdown',...platingExtra});

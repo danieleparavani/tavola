@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderPlating, platingText } from '../core/platingRender.mjs';
 import { styleFor, sauceColorFor, GRAIN_ENUM, COLOR_ENUM } from '../core/foodStyle.mjs';
+import { measureText, wrapText } from '../core/handwriting.mjs';
 
 // D-048: schema di impiattamento deterministico (regole fisse, nessuna generazione AI). Questi
 // test verificano solo che il rendering sia un PNG valido e deterministico e che il testo
@@ -74,12 +75,44 @@ test('platingText numera ogni elemento nello stesso ordine di clockLayout, a par
   assert.match(text, /3\. filo d’olio/);
 });
 
-// D-060: il disegno è diventato un'illustrazione in prospettiva (760x480 in formato orizzontale,
-// non più un quadrato con uno schema geometrico).
-test('renderPlating produce un\'immagine orizzontale 760x600', () => {
+// D-063: l'immagine non è più solo il piatto ma una scheda (titolo, vignette, richiami, sezione,
+// vista dall'alto, prova colore), quindi è più grande e in formato quasi quadrato.
+test('renderPlating produce la scheda 1180x990', () => {
   const png = renderPlating(samplePlating);
-  assert.equal(png.readUInt32BE(16), 760);
-  assert.equal(png.readUInt32BE(20), 600);
+  assert.equal(png.readUInt32BE(16), 1180);
+  assert.equal(png.readUInt32BE(20), 990);
+});
+
+// D-063: titolo e principio arrivano dal piatto, non dallo schema di impiattamento. Se mancano
+// (piatti editoriali vecchi, chiamate senza contesto) la scheda deve comunque essere prodotta.
+test('renderPlating disegna la scheda con titolo e principio, e anche senza', () => {
+  const conMeta = renderPlating(samplePlating, { title: 'Spaghetti con mollica croccante', principle: { term: 'emulsione', prediction: 'la salsa resta legata' } });
+  const senzaMeta = renderPlating(samplePlating);
+  assert.ok(Buffer.isBuffer(conMeta) && conMeta.length > 8);
+  assert.ok(Buffer.isBuffer(senzaMeta) && senzaMeta.length > 8);
+  assert.notDeepEqual(conMeta, senzaMeta, 'il titolo deve comparire davvero sul foglio');
+});
+
+test('renderPlating resta deterministica anche con il titolo', () => {
+  const meta = { title: 'Filetti di triglia', principle: { term: 'cottura differenziale' } };
+  assert.deepEqual(renderPlating(samplePlating, meta), renderPlating(samplePlating, meta));
+});
+
+// D-063: la scrittura a mano è disegnata a tratti, quindi la misura del testo non è una
+// moltiplicazione: serve per mandare a capo e per sottolineare i titoli alla larghezza giusta.
+test('la scrittura a mano misura il testo e lo manda a capo su parole intere', () => {
+  assert.ok(measureText('impiattamento', 20) > measureText('impiatt', 20));
+  assert.equal(measureText('', 20), 0);
+  const lines = wrapText('filetti di triglia con pomodoro crudo e pane aromatico tostato', 20, 160);
+  assert.ok(lines.length > 1);
+  assert.ok(lines.every(line => measureText(line, 20) <= 160 || !line.includes(' ')));
+  assert.equal(lines.join(' '), 'filetti di triglia con pomodoro crudo e pane aromatico tostato');
+});
+
+test('la scrittura a mano copre lettere accentate e maiuscole senza perdere caratteri', () => {
+  assert.ok(measureText('à', 20) > 0);
+  assert.ok(measureText('È', 20) > 0);
+  assert.ok(measureText('ABC', 20) > measureText('AB', 20));
 });
 
 // D-060: colore e grana vengono dal nome reale dell'ingrediente. Sono queste corrispondenze a

@@ -1,8 +1,9 @@
 import {
   createCanvas, encodePNG, fillEllipse, fillDot,
   paintMultiply, valueNoise, organicEllipse, fillWash, drawInk, ribbonPolygon,
-  drawNumberBadge, makeRng, hashString, lerpColor,
+  makeRng, hashString, lerpColor,
 } from './png.mjs';
+import { drawHandText, measureText, wrapText } from './handwriting.mjs';
 import { styleFor, sauceColorFor } from './foodStyle.mjs';
 
 // D-048: schema di impiattamento deterministico, basato su regole (D-020), non su generazione
@@ -22,10 +23,10 @@ import { styleFor, sauceColorFor } from './foodStyle.mjs';
 // sovrappongono, grana della carta, linea di matita che non coincide con il colore. Lo schema
 // dei dati non cambia: stessi elementi, stesse posizioni sul quadrante, stessa numerazione.
 
-const W = 760, H = 600;
-const CX = W / 2, CY = 312;
-const PLATE_RX = 268, PLATE_RY = 158;
-const LAYOUT_RX = 120, LAYOUT_RY = 70;
+// D-063: la scheda contiene lo stesso piatto a tre scale diverse (vista principale, vista
+// dall'alto, sezione), quindi geometria e resa non possono piu essere costanti del modulo.
+const REFERENCE_RX = 268; // scala a cui sono tarate le impronte in FOOTPRINT
+const W = 1180, H = 990;
 
 const PAPER = [252, 249, 241];
 const INK = [78, 70, 64];        // matita morbida, non nero pieno
@@ -41,10 +42,19 @@ function angleFor(position) {
   return deg === undefined ? null : (deg * Math.PI) / 180;
 }
 
-function positionFor(position) {
+function positionFor(position, plate) {
   const rad = angleFor(position);
-  if (rad === null) return { x: CX, y: CY + 6 };
-  return { x: CX + Math.cos(rad) * LAYOUT_RX, y: CY + Math.sin(rad) * LAYOUT_RY };
+  if (rad === null) return { x: plate.cx, y: plate.cy + 6 * plate.scale };
+  return {
+    x: plate.cx + Math.cos(rad) * plate.rx * 0.45,
+    y: plate.cy + Math.sin(rad) * plate.ry * 0.45,
+  };
+}
+
+// Un piatto e definito da centro, raggi e seme; la scala deriva dal raggio, cosi gli elementi
+// mantengono le proporzioni giuste a qualunque dimensione.
+function plateAt(cx, cy, rx, ry, seed) {
+  return { cx, cy, rx, ry, seed, scale: rx / REFERENCE_RX };
 }
 
 // Impronta dell'elemento sul piatto: la forma dello schema (D-048) decide l'ingombro, la grana
@@ -282,7 +292,7 @@ function drawElement(canvas, item, x, y, scale) {
 
 // --- carta, piatto, salsa -------------------------------------------------------------------
 
-// Carta da acquerello: tinta calda, grana fine e qualche zona appena piu assorbente.
+// Carta da acquerello: tinta calda e grana fine, calcolata una volta ogni due pixel.
 function drawPaper(canvas) {
   for (let y = 0; y < H; y += 2) {
     for (let x = 0; x < W; x += 2) {
@@ -297,43 +307,49 @@ function drawPaper(canvas) {
   }
 }
 
-function drawPlate(canvas) {
-  const outer = organicEllipse(CX, CY, PLATE_RX, PLATE_RY, 0, 12, 0.02, 46);
-  const inner = organicEllipse(CX, CY + 6, PLATE_RX * 0.72, PLATE_RY * 0.72, 0, 19, 0.03, 40);
-  // ombra del piatto sul foglio: una velatura, non un gradiente scuro
-  fillWash(canvas, organicEllipse(CX + 14, CY + PLATE_RY * 0.34, PLATE_RX * 0.92, PLATE_RY * 0.66, 0, 23, 0.05, 34),
-    SHADOW_WASH, { alpha: 0.09, seed: 23, edge: 0.15, bleed: 14 });
-  fillWash(canvas, outer, PLATE_WASH, { alpha: 0.09, seed: 41, edge: 0.9, bleed: 4 });
-  fillWash(canvas, inner, PLATE_WASH, { alpha: 0.05, seed: 47, edge: 0.7, bleed: 3 });
-  drawInk(canvas, outer, INK, { width: 1.5, alpha: 0.42, seed: 12, closed: true, breaks: 0.1, wobble: 1.3 });
-  drawInk(canvas, inner, INK, { width: 1.1, alpha: 0.3, seed: 19, closed: true, breaks: 0.3, wobble: 1.2 });
+function paintPlate(canvas, plate, opts = {}) {
+  const { shadow = true, inner = true } = opts;
+  const { cx, cy, rx, ry, seed } = plate;
+  const outerShape = organicEllipse(cx, cy, rx, ry, 0, seed, 0.02, 46);
+  const innerShape = organicEllipse(cx, cy + 6 * plate.scale, rx * 0.72, ry * 0.72, 0, seed + 7, 0.03, 40);
+  if (shadow) {
+    fillWash(canvas, organicEllipse(cx + 14 * plate.scale, cy + ry * 0.34, rx * 0.92, ry * 0.66, 0, seed + 11, 0.05, 34),
+      SHADOW_WASH, { alpha: 0.09, seed: seed + 11, edge: 0.15, bleed: 14 });
+  }
+  fillWash(canvas, outerShape, PLATE_WASH, { alpha: 0.09, seed: seed + 29, edge: 0.9, bleed: 4 });
+  if (inner) fillWash(canvas, innerShape, PLATE_WASH, { alpha: 0.05, seed: seed + 35, edge: 0.7, bleed: 3 });
+  drawInk(canvas, outerShape, INK, { width: 1.5 * Math.max(0.7, plate.scale), alpha: 0.42, seed, closed: true, breaks: 0.1, wobble: 1.3 });
+  if (inner) drawInk(canvas, innerShape, INK, { width: 1.1 * Math.max(0.7, plate.scale), alpha: 0.3, seed: seed + 7, closed: true, breaks: 0.3, wobble: 1.2 });
 }
 
-function drawSauce(canvas, style, sauce) {
+function paintSauce(canvas, style, sauce, plate) {
   const color = sauce.dark;
+  const { cx, cy, rx, ry, seed, scale } = plate;
   switch (style) {
-    case 'specchio': {
-      const pool = organicEllipse(CX, CY + 22, PLATE_RX * 0.5, PLATE_RY * 0.38, 0, 61, 0.12, 34);
-      fillWash(canvas, pool, color, { alpha: 0.2, seed: 61, edge: 0.95, bleed: 6, dry: 0.995, grain: 0.3 });
+    case 'specchio':
+      fillWash(canvas, organicEllipse(cx, cy + 22 * scale, rx * 0.5, ry * 0.38, 0, seed + 61, 0.12, 34), color,
+        { alpha: 0.2, seed: seed + 61, edge: 0.95, bleed: 6, dry: 0.995, grain: 0.3 });
       return;
-    }
     case 'velo':
-      fillWash(canvas, organicEllipse(CX, CY + 18, PLATE_RX * 0.58, PLATE_RY * 0.46, 0, 67, 0.14, 34), color, { alpha: 0.12, seed: 67, edge: 0.5, bleed: 7, dry: 0.995, grain: 0.3 });
+      fillWash(canvas, organicEllipse(cx, cy + 18 * scale, rx * 0.58, ry * 0.46, 0, seed + 67, 0.14, 34), color,
+        { alpha: 0.12, seed: seed + 67, edge: 0.5, bleed: 7, dry: 0.995, grain: 0.3 });
       return;
     case 'virgola': {
       const pts = [];
       for (let i = 0; i <= 22; i++) {
         const t = i / 22;
         const a = Math.PI * (0.95 - t * 1.45);
-        pts.push({ x: CX + Math.cos(a) * PLATE_RX * 0.36 - 10, y: CY + 20 + Math.sin(a) * PLATE_RY * 0.38 });
+        pts.push({ x: cx + Math.cos(a) * rx * 0.36 - 10 * scale, y: cy + 20 * scale + Math.sin(a) * ry * 0.38 });
       }
-      fillWash(canvas, ribbonPolygon(pts, (t) => 32 * (1 - t) + 7), color, { alpha: 0.26, seed: 71, edge: 0.9, bleed: 4, dry: 0.99, grain: 0.3 });
+      fillWash(canvas, ribbonPolygon(pts, (t) => (32 * (1 - t) + 7) * scale), color,
+        { alpha: 0.26, seed: seed + 71, edge: 0.9, bleed: 4, dry: 0.99, grain: 0.3 });
       return;
     }
     case 'punti':
       [[-96, -30], [-50, 30], [16, -44], [86, 18], [4, 56], [-18, -4]].forEach(([dx, dy], i) => {
-        const r = 8 + (i % 3) * 2.5;
-        fillWash(canvas, organicEllipse(CX + dx, CY + 14 + dy, r, r * 0.78, 0, 80 + i, 0.18, 14), color, { alpha: 0.42, seed: 80 + i, edge: 0.9, bleed: 2.5 });
+        const r = (8 + (i % 3) * 2.5) * scale;
+        fillWash(canvas, organicEllipse(cx + dx * scale, cy + (14 + dy) * scale, r, r * 0.78, 0, seed + 80 + i, 0.18, 14), color,
+          { alpha: 0.42, seed: seed + 80 + i, edge: 0.9, bleed: 2.5 });
       });
       return;
     case 'nessuna':
@@ -341,79 +357,185 @@ function drawSauce(canvas, style, sauce) {
   }
 }
 
+// Dipinge la salsa e gli elementi su un piatto: gli elementi sul fondo per primi e leggermente
+// piu piccoli, quelli in primo piano per ultimi, cosi le velature si sovrappongono nell'ordine
+// giusto. Restituisce le posizioni, che servono per i richiami e i numeri.
+function paintDish(canvas, plating, plate) {
+  const items = (plating?.clockLayout || []).filter(Boolean);
+  paintSauce(canvas, plating?.sauceStyle, sauceColorFor(items), plate);
+  const placed = items.map((item, idx) => ({ item, idx, ...positionFor(item.position, plate) }));
+  [...placed].sort((a, b) => a.y - b.y).forEach((p) => {
+    const depth = (p.y - (plate.cy - plate.ry * 0.45)) / (2 * plate.ry * 0.45);
+    drawElement(canvas, p.item, p.x, p.y, plate.scale * (0.9 + depth * 0.2));
+  });
+  return placed;
+}
 
-// Cifre scritte a mano: tratti, non una matrice di pixel. Lo schema ammette al massimo cinque
-// elementi (clockLayout, minItems 2 / maxItems 5), quindi bastano le prime cifre; per qualunque
-// altro numero resta il font a matrice come ripiego.
-const HAND_DIGITS = {
-  1: [[[0.32, 0.26], [0.52, 0.08], [0.52, 0.94]]],
-  2: [[[0.18, 0.3], [0.32, 0.08], [0.64, 0.12], [0.7, 0.4], [0.24, 0.9], [0.8, 0.88]]],
-  3: [[[0.2, 0.16], [0.58, 0.07], [0.74, 0.3], [0.44, 0.5], [0.76, 0.64], [0.6, 0.92], [0.22, 0.86]]],
-  4: [[[0.66, 0.06], [0.16, 0.64], [0.86, 0.62]], [[0.62, 0.36], [0.64, 0.94]]],
-  5: [[[0.74, 0.1], [0.3, 0.12], [0.26, 0.46], [0.56, 0.4], [0.76, 0.6], [0.6, 0.9], [0.24, 0.86]]],
-  6: [[[0.7, 0.1], [0.36, 0.24], [0.26, 0.66], [0.5, 0.9], [0.72, 0.7], [0.5, 0.5], [0.28, 0.6]]],
-  7: [[[0.2, 0.12], [0.78, 0.1], [0.44, 0.94]]],
-  8: [[[0.5, 0.5], [0.26, 0.34], [0.44, 0.08], [0.7, 0.26], [0.5, 0.5], [0.28, 0.7], [0.48, 0.92], [0.74, 0.72], [0.5, 0.5]]],
-  9: [[[0.7, 0.4], [0.42, 0.5], [0.3, 0.26], [0.56, 0.08], [0.72, 0.3], [0.64, 0.7], [0.36, 0.9]]],
-};
+// --- annotazioni e viste secondarie ----------------------------------------------------------
 
-function drawHandNumber(canvas, cx, cy, value, size, seed) {
-  const strokes = HAND_DIGITS[value];
-  if (!strokes) { drawNumberBadge(canvas, cx, cy, value, { r: 12.5, scale: 2, fill: [...PAPER, 235], stroke: [...PAPER, 0], color: [...INK, 235] }); return; }
-  strokes.forEach((stroke, i) => {
-    const pts = stroke.map(([x, y]) => [cx + (x - 0.5) * size * 0.62, cy + (y - 0.5) * size]);
-    drawInk(canvas, pts, INK, { width: 1.9, alpha: 0.72, seed: seed + i * 7, wobble: 0.7, breaks: 0.04 });
+function handNumber(canvas, cx, cy, value, size, seed) {
+  fillEllipse(canvas, cx, cy, size * 0.9, size * 0.9, [...PAPER, 225]);
+  drawInk(canvas, organicEllipse(cx, cy, size * 0.9, size * 0.9, 0, seed, 0.09, 18), INK,
+    { width: 1.3, alpha: 0.5, seed, closed: true, breaks: 0.14 });
+  drawHandText(canvas, String(value), cx - size * 0.26, cy + size * 0.42, size * 1.25, { seed: seed + 3, weight: 1.05, alpha: 0.78, jitter: 0.6 });
+}
+
+// Freccia a mano libera: una curva leggera con due trattini in punta, come quelle che collegano
+// le annotazioni al disegno in una scheda disegnata a mano.
+function handArrow(canvas, from, to, seed, bend = 0.22) {
+  const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const pts = [[from.x, from.y], [mx - dy * bend * 0.5, my + dx * bend * 0.5], [to.x, to.y]];
+  const curve = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12, u = 1 - t;
+    curve.push([
+      u * u * pts[0][0] + 2 * u * t * pts[1][0] + t * t * pts[2][0],
+      u * u * pts[0][1] + 2 * u * t * pts[1][1] + t * t * pts[2][1],
+    ]);
+  }
+  drawInk(canvas, curve, PENCIL, { width: 1.3, alpha: 0.5, seed, breaks: 0.08, wobble: 1.1 });
+  const last = curve[curve.length - 1], prev = curve[curve.length - 3];
+  const ang = Math.atan2(last[1] - prev[1], last[0] - prev[0]);
+  [0.5, -0.5].forEach((turn, i) => {
+    drawInk(canvas, [[last[0], last[1]], [last[0] - Math.cos(ang + turn) * 11, last[1] - Math.sin(ang + turn) * 11]],
+      PENCIL, { width: 1.2, alpha: 0.5, seed: seed + 5 + i, breaks: 0.05 });
   });
 }
 
-// --- numerazione ----------------------------------------------------------------------------
+// Vignetta di un ingrediente: lo stesso elemento del piatto, dipinto piccolo e isolato, come i
+// campioni che si mettono a margine di una scheda.
+function drawVignette(canvas, item, cx, cy, scale) {
+  drawElement(canvas, { ...item, shape: item.shape === 'linea' ? 'mucchio' : item.shape }, cx, cy, scale);
+}
 
-// I numeri stanno fuori dal piatto, collegati all'elemento da un tratto leggero di matita: sono
-// le annotazioni a margine di un disegno, non etichette stampate sopra al cibo.
-function badgePositions(items) {
-  const used = [];
-  return items.map((it, idx) => {
-    let a = angleFor(it.position);
-    if (a === null) a = -Math.PI / 2 - 0.5;
-    let guard = 0;
-    while (used.some(u => Math.abs(Math.atan2(Math.sin(a - u), Math.cos(a - u))) < 0.38) && guard++ < 16) a += 0.4;
-    used.push(a);
-    return { idx, x: CX + Math.cos(a) * PLATE_RX * 1.07, y: CY + Math.sin(a) * PLATE_RY * 1.17 };
+// Sezione: il profilo del piatto visto di taglio, con gli elementi come rilievi. Dice quanto va
+// costruito in altezza, che una vista dall'alto non mostra.
+function drawSection(canvas, items, x0, x1, baseline, seed) {
+  const mid = (x0 + x1) / 2, halfWidth = (x1 - x0) / 2;
+  const profile = [];
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20;
+    profile.push([x0 + (x1 - x0) * t, baseline + Math.sin(Math.PI * t) * 16]);
+  }
+  fillWash(canvas, [...profile, [x1, baseline - 4], [x0, baseline - 4]], PLATE_WASH, { alpha: 0.1, seed, edge: 0.6, bleed: 3 });
+  drawInk(canvas, profile, INK, { width: 1.5, alpha: 0.45, seed, breaks: 0.12 });
+  drawInk(canvas, [[x0, baseline], [x0 - 12, baseline - 14]], INK, { width: 1.4, alpha: 0.42, seed: seed + 1, breaks: 0.1 });
+  drawInk(canvas, [[x1, baseline], [x1 + 12, baseline - 14]], INK, { width: 1.4, alpha: 0.42, seed: seed + 2, breaks: 0.1 });
+  items.forEach((item, i) => {
+    const t = items.length === 1 ? 0.5 : 0.18 + (0.64 * i) / (items.length - 1);
+    const cx = x0 + (x1 - x0) * t;
+    const top = baseline + Math.sin(Math.PI * t) * 16 - 6;
+    const style = styleFor(item.element, { grain: item.grain, color: item.color });
+    const w = halfWidth * 0.26, h = 12 + (item.shape === 'mucchio' ? 10 : 0);
+    const mound = [];
+    for (let k = 0; k <= 16; k++) {
+      const u = -1 + (2 * k) / 16;
+      mound.push([cx + u * w, top - Math.pow(Math.max(0, 1 - u * u), 0.7) * h]);
+    }
+    fillWash(canvas, [...mound, [cx + w, top], [cx - w, top]], pigment(style), { alpha: 0.45, seed: seed + i * 9, edge: 0.7, bleed: 2 });
+    drawInk(canvas, mound, INK, { width: 1.2, alpha: 0.45, seed: seed + i * 9, breaks: 0.2 });
+    handNumber(canvas, cx, top - h - 16, i + 1, 9, seed + 100 + i);
   });
 }
 
-// Carta e piatto vuoto non dipendono dalla ricetta: si calcolano una volta sola e si ricopiano.
-let emptyPlateCache = null;
+// Campioni di colore: gli stessi pigmenti usati nel disegno, messi in fila come la prova colore
+// che si fa a margine del foglio prima di dipingere.
+function drawPalette(canvas, items, sauce, x, y, seed) {
+  const colors = items.map(it => pigment(styleFor(it.element, { grain: it.grain, color: it.color })));
+  if (sauce) colors.push(sauce.dark);
+  colors.slice(0, 6).forEach((color, i) => {
+    const cx = x + i * 44;
+    fillWash(canvas, organicEllipse(cx, y, 15, 19, 0.2, seed + i, 0.22, 16), color,
+      { alpha: 0.5, seed: seed + i, edge: 0.8, bleed: 3 });
+  });
+}
 
-function buildEmptyPlate() {
+// --- la scheda ------------------------------------------------------------------------------
+
+let paperCache = null;
+
+function buildPaper() {
   const canvas = createCanvas(W, H, [...PAPER, 255]);
   drawPaper(canvas);
-  drawPlate(canvas);
   return canvas;
 }
 
-export function renderPlating(plating) {
-  if (!emptyPlateCache) emptyPlateCache = buildEmptyPlate();
-  const canvas = { width: W, height: H, pixels: Buffer.from(emptyPlateCache.pixels) };
+// D-063: l'immagine non e piu solo il piatto ma una scheda, sul modello dei disegni con cui si
+// presenta l'idea di un piatto: titolo scritto a mano, principio tecnico come sottotitolo,
+// vignette degli ingredienti in colonna, vista principale con i richiami, sezione, vista
+// dall'alto e prova colore. Ogni parte viene da un dato che il laboratorio produce davvero;
+// niente testo decorativo inventato.
+export function renderPlating(plating, meta = {}) {
+  if (!paperCache) paperCache = buildPaper();
+  const canvas = { width: W, height: H, pixels: Buffer.from(paperCache.pixels) };
+  const items = (plating?.clockLayout || []).filter(Boolean).slice(0, 5);
+  const sauce = sauceColorFor(items);
 
-  const items = (plating?.clockLayout || []).filter(Boolean);
-  drawSauce(canvas, plating?.sauceStyle, sauceColorFor(items));
-
-  // gli elementi sul fondo del piatto vengono dipinti per primi e leggermente piu piccoli,
-  // quelli in primo piano per ultimi: le velature si sovrappongono nell'ordine giusto
-  const placed = items.map((item, idx) => ({ item, idx, ...positionFor(item.position) }));
-  placed.sort((a, b) => a.y - b.y);
-  for (const p of placed) {
-    const depth = (p.y - (CY - LAYOUT_RY)) / (2 * LAYOUT_RY);
-    drawElement(canvas, p.item, p.x, p.y, 0.9 + depth * 0.2);
+  // titolo e principio tecnico
+  const title = String(meta.title || 'Impiattamento').trim();
+  const titleLines = wrapText(title, 44, 520).slice(0, 2);
+  let ty = 92;
+  titleLines.forEach((line, i) => {
+    drawHandText(canvas, line, 62, ty, 44, { seed: 21 + i, weight: 1.15, alpha: 0.8 });
+    ty += 54;
+  });
+  const titleWidth = Math.max(...titleLines.map(l => measureText(l, 44)));
+  drawInk(canvas, [[60, ty - 32], [60 + Math.min(titleWidth, 520), ty - 34]], INK, { width: 1.6, alpha: 0.5, seed: 33, breaks: 0.1, wobble: 1.4 });
+  const principle = meta.principle?.term ? String(meta.principle.term) : '';
+  if (principle) {
+    wrapText(principle, 23, 480).slice(0, 2).forEach((line, i) => {
+      drawHandText(canvas, line, 64, ty + 6 + i * 32, 23, { seed: 41 + i, alpha: 0.66 });
+    });
   }
 
-  for (const badge of badgePositions(items)) {
-    const target = positionFor(items[badge.idx].position);
-    drawInk(canvas, [[badge.x, badge.y], [target.x, target.y]], PENCIL, { width: 1, alpha: 0.42, seed: 300 + badge.idx, breaks: 0.2, wobble: 1.4 });
-    fillEllipse(canvas, badge.x, badge.y, 15, 15, [...PAPER, 225]);
-    drawInk(canvas, organicEllipse(badge.x, badge.y, 15, 15, 0, 400 + badge.idx, 0.09, 20), INK, { width: 1.3, alpha: 0.5, seed: 400 + badge.idx, closed: true, breaks: 0.14 });
-    drawHandNumber(canvas, badge.x, badge.y, badge.idx + 1, 17, 400 + badge.idx);
+  // vista principale con i numeri
+  const plate = plateAt(668, 452, 258, 155, 12);
+  paintPlate(canvas, plate);
+  const placed = paintDish(canvas, plating, plate);
+  placed.forEach((p) => handNumber(canvas, p.x + 34, p.y - 44, p.idx + 1, 13, 400 + p.idx));
+
+  // vignette degli ingredienti, in colonna a sinistra
+  items.forEach((item, i) => {
+    const rowY = 306 + i * 98;
+    drawVignette(canvas, item, 118, rowY, 0.34);
+    handNumber(canvas, 62, rowY, i + 1, 11, 500 + i);
+    const lines = wrapText(item.element, 19, 150).slice(0, 3);
+    lines.forEach((line, k) => drawHandText(canvas, line, 186, rowY - 6 + k * 24, 19, { seed: 60 + i * 5 + k, alpha: 0.7 }));
+  });
+
+  // richiami a destra: sono i campi che il laboratorio compila per l'impiattamento
+  const notes = [];
+  const sauceLabel = { specchio: 'salsa a specchio alla base', virgola: 'salsa a virgola', punti: 'salsa a punti', velo: 'salsa a velo leggero' }[plating?.sauceStyle];
+  if (sauceLabel) notes.push(sauceLabel);
+  if (plating?.temperature) notes.push(plating.temperature);
+  if (plating?.finish) notes.push(plating.finish);
+  notes.slice(0, 3).forEach((note, i) => {
+    const noteY = 336 + i * 128;
+    const lines = wrapText(note, 19, 236).slice(0, 4);
+    lines.forEach((line, k) => drawHandText(canvas, line, 906, noteY + k * 26, 19, { seed: 90 + i * 7 + k, alpha: 0.7 }));
+    const target = placed[Math.min(i, Math.max(0, placed.length - 1))] || { x: plate.cx, y: plate.cy };
+    handArrow(canvas, { x: 896, y: noteY - 6 }, { x: target.x + 64, y: target.y - 4 }, 120 + i, i === 1 ? 0.08 : 0.2);
+  });
+
+  // sezione, vista dall'alto e prova colore
+  drawSection(canvas, items, 92, 372, 828, 210);
+  drawHandText(canvas, 'Sezione', 92, 906, 22, { seed: 141, alpha: 0.7 });
+  drawInk(canvas, [[90, 918], [90 + measureText('Sezione', 22), 919]], INK, { width: 1.2, alpha: 0.4, seed: 142, breaks: 0.15 });
+
+  const topPlate = plateAt(576, 786, 108, 108, 55);
+  paintPlate(canvas, topPlate, { shadow: false });
+  paintDish(canvas, plating, topPlate);
+  drawHandText(canvas, 'Vista dall’alto', 494, 938, 22, { seed: 151, alpha: 0.7 });
+  drawInk(canvas, [[492, 950], [492 + measureText('Vista dall’alto', 22), 951]], INK, { width: 1.2, alpha: 0.4, seed: 152, breaks: 0.15 });
+
+  drawPalette(canvas, items, sauce, 828, 742, 170);
+  drawHandText(canvas, 'colori del piatto', 828, 792, 20, { seed: 161, alpha: 0.66 });
+  const closing = plating?.textureNote || meta.principle?.prediction || '';
+  if (closing) {
+    wrapText(closing, 20, 300).slice(0, 4).forEach((line, i) => {
+      drawHandText(canvas, line, 828, 848 + i * 27, 20, { seed: 171 + i, alpha: 0.68 });
+    });
   }
   return encodePNG(canvas);
 }

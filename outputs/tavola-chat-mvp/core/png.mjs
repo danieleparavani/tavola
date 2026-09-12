@@ -537,11 +537,43 @@ export function fillWash(canvas, pts, rgb, opts = {}) {
     minY = Math.min(minY, y); maxY = Math.max(maxY, y);
   }
   const edgeWidth = Math.max(2.5, Math.min(9, Math.min(maxX - minX, maxY - minY) * 0.22));
-  for (let y = Math.floor(minY - bleed) - 1; y <= Math.ceil(maxY + bleed) + 1; y++) {
-    for (let x = Math.floor(minX - bleed) - 1; x <= Math.ceil(maxX + bleed) + 1; x++) {
-      const inside = pointInPoly(x + 0.5, y + 0.5, pts);
-      const d = distanceToOutline(x + 0.5, y + 0.5, pts);
-      if (!inside && d > bleed) continue;
+  // D-063: la distanza esatta dal contorno costa quanto il numero di lati, per ogni pixel, ed e
+  // il motivo per cui una scheda con tre piatti e le vignette arrivava a due secondi. Le righe
+  // vengono quindi riempite per intervalli (una sola passata sui lati per riga) e la distanza
+  // esatta si calcola solo dove serve davvero: vicino ai bordi, dove il pigmento si accumula, e
+  // nella fascia di sbavatura appena fuori. All'interno il colore non dipende dalla distanza.
+  const band = edgeWidth + bleed + 1;
+  const y0 = Math.floor(minY - bleed) - 1, y1 = Math.ceil(maxY + bleed) + 1;
+  const crossings = [];
+  for (let y = y0; y <= y1; y++) {
+    const py = y + 0.5;
+    crossings.length = 0;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if ((yi > py) !== (yj > py)) crossings.push(((xj - xi) * (py - yi)) / (yj - yi) + xi);
+    }
+    crossings.sort((a, b) => a - b);
+    const spanStart = crossings.length ? crossings[0] : null;
+    const spanEnd = crossings.length ? crossings[crossings.length - 1] : null;
+    const nearTop = py - minY < band || maxY - py < band;
+    const from = spanStart === null ? Math.floor(minX - bleed) : Math.floor(spanStart - bleed) - 1;
+    const to = spanEnd === null ? Math.ceil(maxX + bleed) : Math.ceil(spanEnd + bleed) + 1;
+    for (let x = from; x <= to; x++) {
+      const px = x + 0.5;
+      let inside = false;
+      for (let k = 0; k + 1 < crossings.length; k += 2) {
+        if (px >= crossings[k] && px <= crossings[k + 1]) { inside = true; break; }
+      }
+      const nearEdge = spanStart === null || nearTop
+        || px - spanStart < band || spanEnd - px < band;
+      let d;
+      if (nearEdge) {
+        d = distanceToOutline(px, py, pts);
+        if (!inside && d > bleed) continue;
+      } else {
+        if (!inside) continue;
+        d = band; // ben dentro la macchia: la distanza esatta non cambierebbe il colore
+      }
       const n = valueNoise(x * scale, y * scale, seed);
       const n2 = valueNoise(x * scale * 3.1 + 11, y * scale * 3.1 + 7, seed + 3);
       let a = alpha * ((1 - grain) + grain * 2 * n);
@@ -558,9 +590,6 @@ export function fillWash(canvas, pts, rgb, opts = {}) {
   }
 }
 
-// La traccia della penna viene accumulata in una maschera prendendo il valore massimo, non
-// sommando: un tratto che si richiude su se stesso non deve diventare nero nel punto di
-// sovrapposizione, come invece succedeva componendo ogni tocco direttamente sull'immagine.
 function stampDab(mask, box, cx, cy, r, alpha) {
   for (let y = Math.floor(cy - r) - 1; y <= Math.ceil(cy + r) + 1; y++) {
     for (let x = Math.floor(cx - r) - 1; x <= Math.ceil(cx + r) + 1; x++) {
@@ -577,8 +606,37 @@ function stampDab(mask, box, cx, cy, r, alpha) {
 // interruzione. È la linea di contorno dei disegni fatti a mano, che non coincide mai
 // perfettamente con il colore steso sotto.
 export function drawInk(canvas, points, rgb, opts = {}) {
+  drawInkBatch(canvas, [points], rgb, opts);
+}
+
+// D-063: piu tratti composti in una sola passata. La scrittura a mano e fatta di centinaia di
+// tratti brevi: comporli uno per uno costerebbe un'allocazione di maschera ciascuno, e nei punti
+// in cui due lettere si toccano il segno si annerirebbe. Una maschera sola per l'intera riga
+// risolve entrambe le cose.
+export function drawInkBatch(canvas, strokes, rgb, opts = {}) {
   const { width = 1.6, alpha = 0.7, seed = 1, wobble = 1.1, breaks = 0.1, closed = false, taper = false } = opts;
-  const pts = closed ? [...points, points[0]] : points;
+  const runs = strokes.map(points => (closed && points.length > 2 ? [...points, points[0]] : points)).filter(p => p && p.length >= 2);
+  if (!runs.length) return;
+  let gMinX = Infinity, gMaxX = -Infinity, gMinY = Infinity, gMaxY = -Infinity;
+  for (const run of runs) for (const [x, y] of run) {
+    gMinX = Math.min(gMinX, x); gMaxX = Math.max(gMaxX, x);
+    gMinY = Math.min(gMinY, y); gMaxY = Math.max(gMaxY, y);
+  }
+  const pad = Math.ceil(width + wobble + 2);
+  const box = { minX: Math.floor(gMinX) - pad, minY: Math.floor(gMinY) - pad, maxX: Math.ceil(gMaxX) + pad, maxY: Math.ceil(gMaxY) + pad };
+  box.w = box.maxX - box.minX + 1; box.h = box.maxY - box.minY + 1;
+  const mask = new Float32Array(box.w * box.h);
+  runs.forEach((pts, runIndex) => stampRun(mask, box, pts, { width, alpha, seed: seed + runIndex * 13, wobble, breaks, taper }));
+  for (let yy = 0; yy < box.h; yy++) {
+    for (let xx = 0; xx < box.w; xx++) {
+      const a = mask[yy * box.w + xx];
+      if (a > 0.002) paintMultiply(canvas, box.minX + xx, box.minY + yy, rgb, a);
+    }
+  }
+}
+
+function stampRun(mask, box, pts, opts) {
+  const { width, alpha, seed, wobble, breaks, taper } = opts;
   if (pts.length < 2) return;
   let total = 0;
   const lens = [];
@@ -586,16 +644,7 @@ export function drawInk(canvas, points, rgb, opts = {}) {
     const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
     lens.push(l); total += l;
   }
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const [x, y] of pts) {
-    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-  }
-  const pad = Math.ceil(width + wobble + 2);
-  const box = { minX: Math.floor(minX) - pad, minY: Math.floor(minY) - pad, maxX: Math.ceil(maxX) + pad, maxY: Math.ceil(maxY) + pad };
-  box.w = box.maxX - box.minX + 1; box.h = box.maxY - box.minY + 1;
-  const mask = new Float32Array(box.w * box.h);
-  const steps = Math.max(8, Math.round(total / 1.1));
+  const steps = Math.max(6, Math.round(total / 1.1));
   for (let s = 0; s <= steps; s++) {
     const t = s / steps;
     let target = t * total, i = 0;
@@ -609,12 +658,6 @@ export function drawInk(canvas, points, rgb, opts = {}) {
     const pressure = 0.55 + 0.9 * valueNoise(t * 5 + 2, 8, seed + 1);
     const end = taper ? Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0.001, t))), 0.4) : 1;
     stampDab(mask, box, x + ox, y + oy, (width / 2) * pressure * end, Math.min(0.95, alpha * pressure));
-  }
-  for (let yy = 0; yy < box.h; yy++) {
-    for (let xx = 0; xx < box.w; xx++) {
-      const a = mask[yy * box.w + xx];
-      if (a > 0.002) paintMultiply(canvas, box.minX + xx, box.minY + yy, rgb, a);
-    }
   }
 }
 
