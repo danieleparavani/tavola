@@ -68,10 +68,10 @@ Spostare scelta, spesa, guida, assistenza, chiusura e D+1 nel canale conversazio
 
 ### Limiti attuali
 
-- Telegram non è ancora collegato a un bot reale.
+- ~~Telegram non è ancora collegato a un bot reale.~~ **Superato:** bot attivo dietro `tavola.service`, tunnel HTTPS `tavola-tunnel.service`, webhook registrato e verificato il 13 settembre 2026 (200 sia dall'URL pubblico sia in locale).
 - Vocali e fotografie sono simulati come tipi di input; mancano trascrizione e analisi.
 - Esiste una sola esperienza editoriale verificata.
-- La generazione AI libera non è attiva.
+- ~~La generazione AI libera non è attiva.~~ **Superato:** laboratorio collegato e verificato in produzione (`/api/status` riporta `labConnected: true`).
 - Non è stato ancora condotto un pilot con tester indipendenti.
 
 ## Failure osservato — ingrediente ignorato

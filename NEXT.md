@@ -118,9 +118,9 @@ Portare l'MVP conversazionale da simulatore locale a esperienza Telegram utilizz
 **Stato:** non iniziata
 
 - [ ] Selezionare tester non principianti.
-- [ ] Consegnare istruzioni minime.
+- [x] Consegnare istruzioni minime — testo pronto in `PILOT.md`, scritto apposta per non spiegare il funzionamento: se serve una spiegazione, è un risultato del test.
 - [ ] Osservare senza guidare il comportamento.
-- [ ] Raccogliere log e intervista breve.
+- [ ] Raccogliere log e intervista breve — griglia di osservazione e sei domande pronte in `PILOT.md`.
 - [ ] Separare evidenze, interpretazioni, ipotesi e decisioni.
 - [ ] Correggere gli attriti principali.
 
