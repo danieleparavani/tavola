@@ -1518,3 +1518,52 @@ test('dplus: classifyIntent riconosce "fammi vedere come sto andando" come richi
     restoreFetch();
   }
 });
+
+// D-068 — regressione da un uso reale. Il progettista ha usato Tavola su Telegram e la
+// conversazione si è bloccata alla riflessione, cioè dopo aver cucinato davvero. Nei log:
+// `telegramUpdate failed TypeError: Cannot read properties of undefined (reading 'sear_maillard')`.
+// Causa: il suo utente era stato creato prima di D-028, quando `user.techniques` non esisteva
+// ancora; `newUser` lo inizializza, ma un utente già salvato in data/pilot.json no. I percorsi
+// di lettura erano difesi (`user.techniques||{}`), quello di scrittura no.
+test('un utente salvato prima che esistessero i campi nuovi non fa cadere il motore alla riflessione', async () => {
+  installFetchMock();
+  try {
+    // Utente "vecchio": esattamente ciò che si trova in data/pilot.json per un iscritto storico.
+    const u = newUser('legacy1', 'Tester');
+    delete u.techniques;
+    delete u.competencies;
+    delete u.preferences;
+    u.state = 'reflection';
+    u.session = {
+      id: 's1', dishId: 'generato', step: 4, mode: 'guided', answers: {}, isSimulation: false,
+      generatedDish: {
+        id: 'generato', name: 'Piatto generato', competency: 'maillard',
+        competencyName: 'Controllare la reazione di Maillard',
+        techniqueMapId: 'sear_maillard', techniqueMapNote: '',
+        principle: { term: 'reazione di Maillard', rule: 'r', prediction: 'p' },
+        shopping: [], steps: [], plating: null, dplus: 'nota', curiosity: 'c', evidence: [],
+      },
+    };
+    queueResponse({ output_text: 'Osservazione plausibile, da verificare ancora.' }); // assessReflection
+
+    const out = await handle(u, { text: 'la crosta è venuta come previsto' });
+
+    assert.ok(out.text, 'la riflessione deve produrre una risposta, non un errore');
+    assert.equal(u.state, 'waiting_dplus');
+    assert.equal(u.techniques.sear_maillard.count, 1, 'la tecnica osservata va registrata comunque');
+    assert.equal(u.competencies.maillard.status, 'introdotto');
+    assert.equal(u.preferences.dplusTime, '08:30', 'le preferenze mancanti tornano al default');
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('anche il D+1 proattivo regge un utente senza i campi nuovi', () => {
+  const u = newUser('legacy2', 'Tester');
+  delete u.techniques;
+  delete u.preferences;
+  u.pendingDplus = { dueAt: new Date(Date.now() - 1000).toISOString(), dishId: 'x', text: 'nota', curiosity: 'c', sessionId: 's1' };
+  const out = dplus(u, { proactive: true });
+  assert.match(out.text, /nota/);
+  assert.deepEqual(u.techniques, {});
+});

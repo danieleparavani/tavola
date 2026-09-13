@@ -1252,3 +1252,28 @@ Un corpus fornito come «completo» lo è editorialmente, non meccanicamente: le
 ### Decisione derivata
 
 D-067: archivio caricato all'avvio, iniettato come contesto verificato nel laboratorio, e usato come unico elenco di nomi attribuibili dal gate editoriale.
+
+## Failure osservato — blocco alla riflessione su Telegram reale
+
+### Evidenze osservate
+
+- Il progettista ha usato Tavola su Telegram; la conversazione si è bloccata dopo aver cucinato.
+- Log del servizio, due occorrenze: `telegramUpdate failed TypeError: Cannot read properties of undefined (reading 'sear_maillard')`, in `core/tavola.mjs`, nel ramo che registra la tecnica osservata.
+- `data/pilot.json` in produzione: l'utente `tg-6344200262` è fermo in stato `reflection` e **non ha il campo `techniques`**; anche l'utente del simulatore web (`pilot-4x4pzg`) ne è privo.
+- Gli utenti creati dopo D-028 hanno il campo regolarmente.
+
+### Interpretazione
+
+`newUser` inizializza i campi nuovi, ma un utente già salvato su disco resta com'era e nessuna migrazione lo aggiorna. I percorsi di lettura del campo erano difensivi, quello di scrittura no. Il ramo di scrittura si percorre solo a fine sessione, quindi il difetto era invisibile a qualunque prova che non arrivasse fino in fondo a una cena vera.
+
+### Ipotesi non verificate
+
+- Che non esistano altri campi introdotti dopo la creazione di un utente e mai difesi in scrittura. La normalizzazione copre quelli noti oggi; non c'è un controllo che imponga di aggiornarla quando se ne aggiunge uno.
+
+### Decisione derivata
+
+D-068: normalizzazione dell'utente all'ingresso di `handle()` e `dplus()`. Due test di regressione, verificati falliti prima della correzione.
+
+### Nota di metodo
+
+Questo difetto non è emerso da 155 test verdi né da nessuna delle verifiche tecniche delle ultime sessioni. È emerso al primo uso reale, alla fine di una cena vera. È l'argomento più concreto a favore del pilot: la superficie che i test coprono e quella che l'uso attraversa non coincidono.

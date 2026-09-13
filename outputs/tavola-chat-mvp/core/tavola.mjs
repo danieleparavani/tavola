@@ -113,7 +113,22 @@ export function willCallLab(user,text){
   return false;
 }
 
+// D-068: un utente creato prima che un campo esistesse non ha quel campo. `newUser` lo mette, ma
+// gli utenti già salvati in data/pilot.json no: il loro oggetto arriva com'era il giorno in cui è
+// stato scritto. I percorsi di lettura erano già difesi (`user.techniques||{}`), quello di
+// scrittura no, e alla riflessione — cioè alla fine di una cena vera — il motore andava in
+// TypeError. Qui i campi mancanti vengono ripristinati una volta sola, all'ingresso.
+export function normalizeUser(user){
+  if(!user)return user;
+  user.competencies??={};
+  user.techniques??={};
+  user.preferences??={dplusTime:'08:30'};
+  user.events??=[];
+  return user;
+}
+
 export async function handle(user,input,{source='simulator'}={}){
+  normalizeUser(user);
   const text=String(input.text||input||'').trim(),n=norm(text);
   event(user,'message_received',{source,kind:input.voice?'voice':input.photo?'photo':'text',text});
   // Un capitolo si considera "chiuso" quando l'utente è in attesa del D+1 o lo ha già ricevuto.
@@ -642,7 +657,7 @@ function parseClockTime(text){const m=String(text||'').match(/(\d{1,2})(?:[:.,](
 export function isDplusDue(user){return Boolean(user?.pendingDplus)&&Date.now()>=Date.parse(user.pendingDplus.dueAt)}
 // `proactive` distingue nell'evento se la consegna è stata inviata da sola dallo scheduler della VM
 // oppure mostrata perché l'utente ha riscritto dopo la scadenza (comportamento invariato di default).
-export function dplus(user,{proactive=false}={}){const pending=user.pendingDplus;if(!pending)return reply('Non ci sono D+1 in attesa.');if(!isDplusDue(user))return reply(`Il D+1 sarà disponibile domattina, verso le ${user.preferences?.dplusTime||'08:30'}.`);event(user,'dplus_delivered',{dishId:pending.dishId,sourceSessionId:pending.sessionId,delivery:proactive?'proactive':'reactive'});user.pendingDplus=null;user.state='dplus';return reply(`☀️ **25 secondi**\n\n${pending.text}`,buttons.dplus,{parseMode:'Markdown'})}
+export function dplus(user,{proactive=false}={}){normalizeUser(user);const pending=user.pendingDplus;if(!pending)return reply('Non ci sono D+1 in attesa.');if(!isDplusDue(user))return reply(`Il D+1 sarà disponibile domattina, verso le ${user.preferences?.dplusTime||'08:30'}.`);event(user,'dplus_delivered',{dishId:pending.dishId,sourceSessionId:pending.sessionId,delivery:proactive?'proactive':'reactive'});user.pendingDplus=null;user.state='dplus';return reply(`☀️ **25 secondi**\n\n${pending.text}`,buttons.dplus,{parseMode:'Markdown'})}
 export function publicUser(u){return {id:u.id,name:u.name,state:u.state,context:u.context,session:u.session,pendingDplus:u.pendingDplus||null,competencies:u.competencies,techniques:u.techniques||{},events:u.events}}
 export function logDashboardOpened(u){event(u,'dashboard_opened',{})}
 // Esportate solo per i test automatici (funzioni pure, nessun cambiamento di comportamento).
