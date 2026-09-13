@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {localTechniqueContext} from './atlante.mjs';
+import {chefContext,isKnownChefName} from './archivioChef.mjs';
 import { GRAIN_ENUM, COLOR_ENUM } from './foodStyle.mjs';
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
 // D-028: mappa statica delle tecniche (data/technique-map.draft.md), caricata da qui perché
@@ -88,8 +89,12 @@ export async function generateLabPlan(context,followup=''){
   // copertura rispetto a prima.
   const archiveQuery=`${context.raw||''} ${context.selectedIdea?.name||''} ${context.selectedIdea?.description||''} ${context.selectedIdea?.principle||''}`;
   const {text:archiveContext,matches:archiveMatches}=localTechniqueContext(archiveQuery);
+  // D-067: accanto all'Atlante (come funziona la tecnica) entra l'archivio degli chef italiani
+  // (chi la pratica davvero, con la fonte). Serve alla curiosità e al D+1, che chiedono sostanza
+  // culturale, e rende concreta D-009: i nomi disponibili sono soltanto questi.
+  const {text:chefArchiveContext}=chefContext(archiveQuery);
   for(let attempt=0;attempt<2;attempt++){
-  const input=`Contesto cena:\n- persone: ${context.people}\n- tempo: ${context.time} minuti\n- richiesta e ingredienti: ${context.raw}\n- luogo: ${context.place||'non specificato'}\n- livello scelto: ${context.difficulty||'non specificato'}\n- direzione scelta: ${context.selectedIdea?.name||'nessuna'} — ${context.selectedIdea?.description||''}\n- risposta a chiarimento: ${followup||'nessuna'}\nSviluppa precisamente la direzione scelta e usa davvero gli ingredienti richiesti.\n${archiveContext?`\n${archiveContext}\n`:''}${editorialNotes}${draft?`\nBOZZA DA CORREGGERE SENZA CAMBIARE LE FONTI VERIFICATE:\n${JSON.stringify(draft)}`:''}\nPrima di rispondere esegui un controllo editoriale silenzioso: riconcilia tutte le quantità; verifica che ogni elemento annunciato nel titolo e nella spesa compaia nei passaggi; inserisci assemblaggio, reinserimento degli ingredienti temporaneamente rimossi e un ultimo passaggio dedicato all'impiattamento; controlla sale e grassi nell'intera ricetta; assicurati che almeno una fonte sostenga proprio il principio tecnico dominante e non soltanto igiene o sicurezza; verifica che il campo plating descriva davvero lo stesso impiattamento dell'ultimo passaggio, con elementi realmente presenti nella ricetta.`;
+  const input=`Contesto cena:\n- persone: ${context.people}\n- tempo: ${context.time} minuti\n- richiesta e ingredienti: ${context.raw}\n- luogo: ${context.place||'non specificato'}\n- livello scelto: ${context.difficulty||'non specificato'}\n- direzione scelta: ${context.selectedIdea?.name||'nessuna'} — ${context.selectedIdea?.description||''}\n- risposta a chiarimento: ${followup||'nessuna'}\nSviluppa precisamente la direzione scelta e usa davvero gli ingredienti richiesti.\n${archiveContext?`\n${archiveContext}\n`:''}${chefArchiveContext?`\n${chefArchiveContext}\n`:''}${editorialNotes}${draft?`\nBOZZA DA CORREGGERE SENZA CAMBIARE LE FONTI VERIFICATE:\n${JSON.stringify(draft)}`:''}\nPrima di rispondere esegui un controllo editoriale silenzioso: riconcilia tutte le quantità; verifica che ogni elemento annunciato nel titolo e nella spesa compaia nei passaggi; inserisci assemblaggio, reinserimento degli ingredienti temporaneamente rimossi e un ultimo passaggio dedicato all'impiattamento; controlla sale e grassi nell'intera ricetta; assicurati che almeno una fonte sostenga proprio il principio tecnico dominante e non soltanto igiene o sicurezza; verifica che il campo plating descriva davvero lo stesso impiattamento dell'ultimo passaggio, con elementi realmente presenti nella ricetta.`;
   const request={model:process.env.OPENAI_MODEL||'gpt-5-mini',reasoning:{effort:'low'},instructions,input,store:false,text:{format:{type:'json_schema',name:'tavola_lab_plan',strict:true,schema}}};if(attempt===0&&!archiveMatches.length){request.tools=[{type:'web_search'}];request.tool_choice='auto'}
   const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify(request)});
   if(!response.ok){const detail=await response.text();throw new Error(`OPENAI_${response.status}:${detail.slice(0,300)}`)}
@@ -142,6 +147,21 @@ export function qualityIssues(d,context){
   const technical=evidence.filter(e=>!/(sicurezza|scart|guscio rotto|lavaggio|conserv)/i.test(e.claim||''));
   if(!technical.length)issues.push('nessuna fonte sostiene la tecnica centrale');
   if(/conserv|frigorif|entro 24 ore/i.test(d.dplus||''))issues.push('D+1 pesante o dedicato alla conservazione');
+  // D-067: D-009 dice che un riferimento entra solo se verificato. Fino a qui era un'intenzione:
+  // niente impediva al modello di attribuire una tecnica a un cuoco preso dalla propria memoria.
+  // Ora l'archivio degli chef è l'unico elenco di nomi attribuibili, e il controllo scatta solo
+  // dopo un marcatore esplicito di attribuzione ("chef X", "alla maniera di X", "scuola di X").
+  // Il marcatore serve a non confondere un nome proprio con un toponimo: "pasta di Gragnano" e
+  // "pomodoro del Piennolo" non sono attribuzioni e non devono far rifiutare nulla.
+  const attributed=[...`${d.name||''} ${d.principle?.term||''} ${d.principle?.rule||''} ${d.curiosity||''} ${d.dplus||''} ${all}`
+    .matchAll(/(?:[Cc]hef|[Mm]aniera di|[Ss]cuola di|[Ss]econdo|[Rr]icetta di|[Tt]ecnica di)\s+((?:[A-ZÀ-Ý][\p{L}']+\s*){1,3})/gu)]
+    .map(m=>m[1].trim().split(/\s+/))
+    // Ogni parola del nome deve essere nell'archivio, non una qualsiasi: con "almeno una"
+    // bastava un nome proprio comune per far passare un cognome inventato — "chef Mario
+    // Superfinto" veniva accettato perché nell'archivio esiste un Mario (Capitaneo).
+    .filter(words=>!words.every(isKnownChefName))
+    .map(words=>words.join(' '));
+  if(attributed.length)issues.push(`attribuzione a un cuoco non presente nell'archivio verificato: ${[...new Set(attributed)].join(', ')}`);
   // "la tostatura sigilla l'amido" è una falsa precisione vietata dalle istruzioni per
   // qualunque piatto (non solo il risotto): resta un controllo generico.
   if(/sigill.*amid/i.test(all))issues.push('spiegazione pseudotecnica non ammessa (falsa precisione, es. "la tostatura sigilla l\'amido")');

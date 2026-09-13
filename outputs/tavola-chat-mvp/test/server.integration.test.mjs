@@ -30,6 +30,10 @@ fs.cpSync(path.join(projectRoot, item), path.join(dir, item), { recursive: true 
 fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
 fs.cpSync(path.join(projectRoot, 'data', 'technique-map.draft.md'), path.join(dir, 'data', 'technique-map.draft.md'));
 fs.cpSync(path.join(projectRoot, 'data', 'atlante-rag'), path.join(dir, 'data', 'atlante-rag'), { recursive: true });
+// D-067: anche l'archivio degli chef è un dato che il server carica all'avvio. Dimenticarlo qui
+// non dava un errore leggibile: il processo moriva all'import e i test riportavano soltanto
+// "server non pronto entro il timeout".
+fs.cpSync(path.join(projectRoot, 'data', 'archivio-chef'), path.join(dir, 'data', 'archivio-chef'), { recursive: true });
 return dir;
 }
 

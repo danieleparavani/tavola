@@ -1228,3 +1228,27 @@ L'assunzione di D-065 — che le etichette, essendo corte, fossero al sicuro —
 ### Decisione derivata
 
 D-066: il modello dipinge e basta; titolo e legenda numerata li scrive il codice sulle fasce di carta aggiunte sopra e sotto il dipinto.
+
+## Ingresso dell'archivio degli chef in Tavola
+
+### Evidenze osservate (analisi del dato, non del prodotto)
+
+- L'archivio fornito contiene 99 schede e 470 tecniche distintive indicizzabili, con 500+ fonti con link.
+- Il file usa **tre trattini diversi** nella stessa intestazione di scheda (em dash in 61 casi, `--` in 38, `---` in alcuni): il primo caricamento ne riconosceva uno solo e importava 61 schede su 99 **senza sollevare errori**.
+- In 31 voci il nome in grassetto della tecnica è spezzato su due righe; lette riga per riga, quelle voci perdevano il nome.
+- Una scheda su 99 usa «Attività» al posto di «Ristorante» (Franco Pepe, pizzaiolo).
+- Il controllo sulle attribuzioni, nella prima stesura, accettava «chef Mario Superfinto»: bastava che una parola del nome fosse nell'archivio, e un Mario c'è (Capitaneo).
+
+### Interpretazione
+
+Un corpus fornito come «completo» lo è editorialmente, non meccanicamente: le irregolarità di formattazione non si vedono leggendo il documento e non producono errori all'importazione, producono silenzio. Il caricamento parziale è il caso peggiore, perché il sistema continua a funzionare e nessuno se ne accorge.
+
+### Ipotesi non verificate
+
+- Che un riferimento a un cuoco verificato renda il D+1 o la curiosità più utili per un tester.
+- Che il recupero per sovrapposizione di parole trovi la scheda giusta quando l'utente nomina una tecnica in modo diverso dall'archivio.
+- Che il controllo sulle attribuzioni non respinga riferimenti legittimi fuori dal perimetro dell'archivio (autori stranieri, manuali, tradizioni senza firma).
+
+### Decisione derivata
+
+D-067: archivio caricato all'avvio, iniettato come contesto verificato nel laboratorio, e usato come unico elenco di nomi attribuibili dal gate editoriale.
